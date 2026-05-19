@@ -1,0 +1,121 @@
+{
+  "version": 2,
+  "states": [
+    {
+      "name": "idle",
+      "preset": "wave",
+      "speed": 0.03,
+      "scale": 0.18,
+      "threshold": 1,
+      "gamma": 1.4,
+      "brightness": 210,
+      "breaths": 0,
+      "duration": 0,
+      "returnTo": "",
+      "colors": [
+        [
+          250,
+          250,
+          250,
+          0
+        ]
+      ],
+      "randomColor": false,
+      "isDefault": true
+    },
+    {
+      "name": "success",
+      "preset": "breathe",
+      "speed": 0.046,
+      "scale": 0.18,
+      "threshold": 1,
+      "gamma": 1.2,
+      "brightness": 255,
+      "breaths": 2,
+      "duration": 1500,
+      "returnTo": "idle",
+      "colors": [
+        [
+          0,
+          255,
+          0,
+          0
+        ]
+      ],
+      "randomColor": false,
+      "isDefault": true
+    },
+    {
+      "name": "failure",
+      "preset": "breathe",
+      "speed": 0.046,
+      "scale": 0.18,
+      "threshold": 1,
+      "gamma": 1.2,
+      "brightness": 255,
+      "breaths": 2,
+      "duration": 1500,
+      "returnTo": "idle",
+      "colors": [
+        [
+          255,
+          0,
+          0,
+          0
+        ]
+      ],
+      "randomColor": false,
+      "isDefault": true
+    },
+    {
+      "name": "loading",
+      "preset": "chase",
+      "speed": 0.06,
+      "scale": 0.18,
+      "threshold": 1,
+      "gamma": 1.4,
+      "brightness": 200,
+      "breaths": 0,
+      "duration": 0,
+      "returnTo": "",
+      "colors": [
+        [
+          0,
+          0,
+          255,
+          0
+        ]
+      ],
+      "randomColor": false,
+      "isDefault": false
+    },
+    {
+      "name": "active",
+      "preset": "noise",
+      "speed": 0.038,
+      "scale": 0.45,
+      "threshold": 1,
+      "gamma": 1.4,
+      "brightness": 200,
+      "breaths": 0,
+      "duration": 0,
+      "returnTo": "",
+      "colors": [
+        [
+          212,
+          0,
+          255,
+          0.3
+        ],
+        [
+          0,
+          128,
+          128,
+          1
+        ]
+      ],
+      "randomColor": true,
+      "isDefault": false
+    }
+  ]
+}

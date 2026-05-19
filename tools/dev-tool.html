@@ -1,0 +1,1860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LED State Manager</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #080c10;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 32px;
+    min-height: 100vh;
+    padding: 40px 24px;
+    font-family: 'Courier New', monospace;
+  }
+
+  .left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .housing {
+    position: relative;
+    width: 480px;
+    height: 480px;
+  }
+
+  canvas {
+    border-radius: 50%;
+    box-shadow: 0 0 60px rgba(0, 80, 255, 0.3), 0 0 120px rgba(0, 40, 180, 0.15);
+    flex-shrink: 0;
+  }
+
+  .meta-logo {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 140px;
+    height: auto;
+    pointer-events: none;
+  }
+
+  .label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: #1e3a6e;
+    text-transform: uppercase;
+  }
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 360px;
+    padding-top: 4px;
+  }
+
+  .controls-title {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: #4a8fff;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #1e2d40;
+    padding-bottom: 6px;
+    margin-top: 12px;
+  }
+
+  .controls-title:first-child { margin-top: 0; }
+
+  .param {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 0;
+  }
+
+  .param-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .param-name {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: #4a6080;
+    text-transform: uppercase;
+  }
+
+  .param-value {
+    font-size: 12px;
+    color: #00e5ff;
+    min-width: 36px;
+    text-align: right;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 2px;
+    background: #1e2d40;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00e5ff;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(0,229,255,0.5);
+  }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #1e2d40;
+  }
+
+  .presets:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .preset-btn {
+    background: none;
+    border: 1px solid #1e3a6e;
+    color: #4a6080;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .preset-btn:hover { border-color: #00e5ff; color: #00e5ff; }
+  .preset-btn.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0,229,255,0.1); }
+  .preset-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* Toggle button (on/off) */
+  .toggle-btn {
+    background: none;
+    border: 1px solid #1e3a6e;
+    color: #4a6080;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .toggle-btn:hover { border-color: #4a6080; }
+  .toggle-btn.active { border-color: #00e5ff; color: #00e5ff; background: rgba(0,229,255,0.1); }
+
+  .status-pill {
+    flex: 1;
+    min-width: 90px;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    border: 1px solid #1e3a6e;
+    border-radius: 3px;
+    color: #4a6080;
+    text-align: center;
+  }
+  .status-pill.connected { border-color: #4aff7a; color: #4aff7a; }
+  .status-pill.stale { border-color: #ffaa44; color: #ffaa44; }
+
+  /* State List */
+  .state-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .state-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(30, 45, 64, 0.3);
+    border: 1px solid #1e2d40;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .state-item:hover { border-color: #4a6080; }
+  .state-item.active { border-color: #00e5ff; background: rgba(0,229,255,0.1); }
+
+  .state-name {
+    flex: 1;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: #8a9aaa;
+    text-transform: uppercase;
+  }
+  .state-item.active .state-name { color: #00e5ff; }
+
+  .state-badge {
+    font-size: 8px;
+    padding: 2px 5px;
+    border-radius: 2px;
+    background: rgba(74, 96, 128, 0.3);
+    color: #4a6080;
+  }
+  .state-badge.default { background: rgba(74, 143, 255, 0.2); color: #4a8fff; }
+
+  .state-delete {
+    background: none;
+    border: none;
+    color: #4a6080;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+  }
+  .state-delete:hover { opacity: 1; color: #ff6b6b; }
+  .state-delete:disabled { display: none; }
+
+  .add-state-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .add-state-input {
+    flex: 1;
+    background: #0a0e14;
+    border: 1px solid #1e2d40;
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #8a9aaa;
+  }
+  .add-state-input:focus { outline: none; border-color: #4a6080; }
+
+  .add-state-btn {
+    background: none;
+    border: 1px solid #2a6a3a;
+    color: #4aff7a;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    padding: 6px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .add-state-btn:hover { border-color: #4aff7a; background: rgba(74, 255, 122, 0.1); }
+
+  /* Color Gradient Editor */
+  .color-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #1e2d40;
+  }
+
+  .color-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+    padding: 8px;
+    background: rgba(10, 14, 20, 0.5);
+    border: 1px solid #1e2d40;
+    border-radius: 3px;
+    min-height: 36px;
+  }
+
+  .color-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    transition: border-color 0.15s;
+  }
+  .color-item:hover { border-color: #2a3a4a; }
+
+  .color-swatch {
+    position: relative;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 3px;
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .color-swatch input[type=color] {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .color-pos-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .color-pos-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .color-pos-label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    color: #4a6080;
+    text-transform: uppercase;
+  }
+  .color-pos-value {
+    font-size: 10px;
+    color: #00e5ff;
+  }
+
+  .color-delete {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #4a6080;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.5;
+    transition: all 0.15s;
+    line-height: 1;
+  }
+  .color-delete:hover { opacity: 1; color: #ff6b6b; }
+  .color-delete:disabled { display: none; }
+
+  .add-color-btn {
+    height: 28px;
+    padding: 0 12px;
+    border: 1px dashed #4a6080;
+    border-radius: 3px;
+    background: none;
+    color: #4a6080;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.1em;
+    align-self: flex-start;
+  }
+  .add-color-btn:hover { border-color: #00e5ff; color: #00e5ff; }
+
+  .gradient-preview {
+    height: 24px;
+    border-radius: 3px;
+    margin-bottom: 12px;
+  }
+
+  /* Duration / Return controls */
+  .duration-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .duration-input {
+    width: 80px;
+    background: #0a0e14;
+    border: 1px solid #1e2d40;
+    border-radius: 3px;
+    padding: 6px 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #8a9aaa;
+    text-align: right;
+  }
+  .duration-input:focus { outline: none; border-color: #4a6080; }
+
+  .return-select {
+    flex: 1;
+    background: #0a0e14;
+    border: 1px solid #1e2d40;
+    border-radius: 3px;
+    padding: 6px 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: #8a9aaa;
+  }
+  .return-select:focus { outline: none; border-color: #4a6080; }
+
+  /* Log Panel */
+  .log-panel {
+    width: 480px;
+    margin-top: 16px;
+  }
+
+  .log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .log-title {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    color: #4a8fff;
+    text-transform: uppercase;
+  }
+
+  .log-output {
+    background: #0a0e14;
+    border: 1px solid #1e2d40;
+    border-radius: 4px;
+    height: 200px;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #6a7a8a;
+  }
+
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line.log-boot { color: #4a8fff; }
+  .log-line.log-nfc { color: #00e5ff; }
+  .log-line.log-led { color: #aa88ff; }
+  .log-line.log-sys { color: #6a7a8a; }
+  .log-line.log-warn { color: #ffaa44; }
+  .log-line.log-hb { color: #3a4a5a; }
+  .log-line.log-cfg { color: #ff88aa; }
+  .log-line.log-ok { color: #4aff7a; }
+  .log-line.log-err { color: #ff6b6b; }
+  .log-line.log-state { color: #aa88ff; font-weight: bold; }
+
+  /* Action buttons */
+  .action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .action-btn {
+    background: none;
+    border: 1px solid #1e3a6e;
+    color: #4a6080;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .action-btn:hover { border-color: #00e5ff; color: #00e5ff; }
+  .action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .action-btn.action-ok { border-color: #2a6a3a; color: #4aff7a; }
+  .action-btn.action-fail { border-color: #6a2a2a; color: #ff6b6b; }
+
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .save-btn, .export-btn {
+    flex: 1;
+    background: none;
+    border: 1px solid #1e3a6e;
+    color: #4a6080;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .save-btn:hover, .export-btn:hover { border-color: #00e5ff; color: #00e5ff; }
+  .save-btn:disabled, .export-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .save-btn.dirty { border-color: #ffaa44; color: #ffaa44; }
+  .save-btn.saved { border-color: #4aff7a; color: #4aff7a; }
+
+  .log-clear-btn {
+    background: none;
+    border: none;
+    color: #3a4a5a;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  .log-clear-btn:hover { color: #ff6b6b; }
+
+  .param-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+  }
+
+  .param-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .param-row input[type=range] { flex: 1; }
+
+  /* File input hidden */
+  .file-input { display: none; }
+</style>
+</head>
+<body>
+
+<div class="left">
+  <div class="housing">
+    <canvas id="c" width="480" height="480"></canvas>
+    <svg class="meta-logo" viewBox="0 0 287.56 191" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="Grad_Logo1" x1="61" y1="117" x2="259" y2="127" gradientUnits="userSpaceOnUse">
+          <stop style="stop-color:#0064e1" offset="0"/>
+          <stop style="stop-color:#0064e1" offset="0.4"/>
+          <stop style="stop-color:#0073ee" offset="0.83"/>
+          <stop style="stop-color:#0082fb" offset="1"/>
+        </linearGradient>
+        <linearGradient id="Grad_Logo2" x1="45" y1="139" x2="45" y2="66" gradientUnits="userSpaceOnUse">
+          <stop style="stop-color:#0082fb" offset="0"/>
+          <stop style="stop-color:#0064e0" offset="1"/>
+        </linearGradient>
+      </defs>
+      <path style="fill:#0081fb" d="m31.06,125.96c0,10.98 2.41,19.41 5.56,24.51 4.13,6.68 10.29,9.51 16.57,9.51 8.1,0 15.51-2.01 29.79-21.76 11.44-15.83 24.92-38.05 33.99-51.98l15.36-23.6c10.67-16.39 23.02-34.61 37.18-46.96 11.56-10.08 24.03-15.68 36.58-15.68 21.07,0 41.14,12.21 56.5,35.11 16.81,25.08 24.97,56.67 24.97,89.27 0,19.38-3.82,33.62-10.32,44.87-6.28,10.88-18.52,21.75-39.11,21.75l0-31.02c17.63,0 22.03-16.2 22.03-34.74 0-26.42-6.16-55.74-19.73-76.69-9.63-14.86-22.11-23.94-35.84-23.94-14.85,0-26.8,11.2-40.23,31.17-7.14,10.61-14.47,23.54-22.7,38.13l-9.06,16.05c-18.2,32.27-22.81,39.62-31.91,51.75-15.95,21.24-29.57,29.29-47.5,29.29-21.27,0-34.72-9.21-43.05-23.09-6.8-11.31-10.14-26.15-10.14-43.06z"/>
+      <path style="fill:url(#Grad_Logo1)" d="m24.49,37.3c14.24-21.95 34.79-37.3 58.36-37.3 13.65,0 27.22,4.04 41.39,15.61 15.5,12.65 32.02,33.48 52.63,67.81l7.39,12.32c17.84,29.72 27.99,45.01 33.93,52.22 7.64,9.26 12.99,12.02 19.94,12.02 17.63,0 22.03-16.2 22.03-34.74l27.4-.86c0,19.38-3.82,33.62-10.32,44.87-6.28,10.88-18.52,21.75-39.11,21.75-12.8,0-24.14-2.78-36.68-14.61-9.64-9.08-20.91-25.21-29.58-39.71l-25.79-43.08c-12.94-21.62-24.81-37.74-31.68-45.04-7.39-7.85-16.89-17.33-32.05-17.33-12.27,0-22.69,8.61-31.41,21.78z"/>
+      <path style="fill:url(#Grad_Logo2)" d="m82.35,31.23c-12.27,0-22.69,8.61-31.41,21.78-12.33,18.61-19.88,46.33-19.88,72.95 0,10.98 2.41,19.41 5.56,24.51l-26.48,17.44c-6.8-11.31-10.14-26.15-10.14-43.06 0-30.75 8.44-62.8 24.49-87.55 14.24-21.95 34.79-37.3 58.36-37.3z"/>
+    </svg>
+  </div>
+  <p class="label">LED State Manager — Dynamic States + Gradients</p>
+
+  <!-- Log Panel -->
+  <div class="log-panel">
+    <div class="log-header">
+      <span class="log-title">// Serial Log</span>
+      <button class="log-clear-btn" id="log-clear-btn">Clear</button>
+    </div>
+    <div class="log-output" id="log-output"></div>
+    <div class="action-row">
+      <button class="action-btn action-ok" id="action-ok" disabled>OK</button>
+      <button class="action-btn action-fail" id="action-fail" disabled>FAIL</button>
+      <button class="action-btn" id="action-trigger" disabled>Trigger</button>
+      <button class="action-btn" id="action-tap" disabled>Simulate Tap</button>
+      <button class="action-btn" id="action-dump" disabled>Sync</button>
+      <button class="action-btn" id="action-reset" disabled>Reset</button>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="controls-title">// Connection</div>
+  <div class="presets">
+    <button class="preset-btn" id="connect-btn">Connect</button>
+    <button class="preset-btn" id="disconnect-btn" disabled>Disconnect</button>
+    <span class="status-pill" id="status-pill">Disconnected</span>
+  </div>
+
+  <div class="controls-title">// States</div>
+  <div class="state-list" id="state-list"></div>
+  <div class="add-state-row">
+    <input type="text" class="add-state-input" id="new-state-name" placeholder="New state name..." maxlength="15">
+    <button class="add-state-btn" id="add-state-btn">+ Add</button>
+  </div>
+
+  <div class="controls-title">// Colors (Gradient)</div>
+  <div class="color-section-header">
+    <button class="toggle-btn" id="random-color-btn">Random Color: Off</button>
+    <span class="param-name" style="font-size:9px;">noise/sparkle only</span>
+  </div>
+  <div class="gradient-preview" id="gradient-preview"></div>
+  <div class="color-list" id="color-list"></div>
+
+  <div class="controls-title">// Animation Preset</div>
+  <div class="presets" id="preset-buttons">
+    <button class="preset-btn anim-btn" data-preset="solid">Solid</button>
+    <button class="preset-btn anim-btn" data-preset="gradient">Gradient</button>
+    <button class="preset-btn anim-btn" data-preset="noise">Noise</button>
+    <button class="preset-btn anim-btn active" data-preset="chase">Chase</button>
+    <button class="preset-btn anim-btn" data-preset="breathe">Breathe</button>
+    <button class="preset-btn anim-btn" data-preset="wave">Wave</button>
+    <button class="preset-btn anim-btn" data-preset="sparkle">Sparkle</button>
+    <button class="preset-btn anim-btn" data-preset="rainbow">Rainbow</button>
+  </div>
+
+  <div class="controls-title">// Parameters</div>
+  <div class="param-grid">
+    <div class="param">
+      <div class="param-header">
+        <span class="param-name">Speed</span>
+        <span class="param-value" id="val-speed">0.06</span>
+      </div>
+      <input type="range" id="speed" min="0.002" max="0.2" step="0.002" value="0.06">
+    </div>
+    <div class="param">
+      <div class="param-header">
+        <span class="param-name">Scale</span>
+        <span class="param-value" id="val-scale">0.18</span>
+      </div>
+      <input type="range" id="scale" min="0.04" max="0.6" step="0.01" value="0.18">
+    </div>
+    <div class="param">
+      <div class="param-header">
+        <span class="param-name">Brightness</span>
+        <span class="param-value" id="val-brightness">210</span>
+      </div>
+      <input type="range" id="brightness" min="30" max="255" step="1" value="210">
+    </div>
+    <div class="param">
+      <div class="param-header">
+        <span class="param-name">Gamma</span>
+        <span class="param-value" id="val-gamma">1.4</span>
+      </div>
+      <input type="range" id="gamma" min="0.5" max="4.0" step="0.1" value="1.4">
+    </div>
+  </div>
+
+  <div class="controls-title">// Duration & Transitions</div>
+  <div class="duration-row">
+    <span class="param-name" style="width: 60px;">Duration</span>
+    <input type="number" class="duration-input" id="duration" min="0" max="60000" value="0" placeholder="0">
+    <span class="param-name" style="font-size: 9px;">ms (0=forever)</span>
+  </div>
+  <div class="duration-row" style="margin-top: 8px;">
+    <span class="param-name" style="width: 60px;">Return to</span>
+    <select class="return-select" id="return-to">
+      <option value="">(stay in state)</option>
+    </select>
+  </div>
+  <div class="duration-row" style="margin-top: 8px;">
+    <span class="param-name" style="width: 60px;">Transition</span>
+    <select class="return-select" id="transition-type">
+      <option value="none">None (instant)</option>
+      <option value="crossfade">Crossfade</option>
+      <option value="fadeblack">Fade to Black</option>
+      <option value="flashwhite">Flash White</option>
+    </select>
+  </div>
+  <div class="duration-row" style="margin-top: 8px;" id="transition-ms-row">
+    <span class="param-name" style="width: 60px;">Trans. ms</span>
+    <input type="number" class="duration-input" id="transition-ms" min="0" max="5000" value="0" placeholder="0">
+    <span class="param-name" style="font-size: 9px;">0=default</span>
+  </div>
+  <div class="param" style="margin-top: 8px;">
+    <div class="param-header">
+      <span class="param-name">Breaths (if breathe preset)</span>
+      <span class="param-value" id="val-breaths">2</span>
+    </div>
+    <input type="range" id="breaths" min="0" max="10" step="1" value="2">
+  </div>
+
+  <div class="controls-title">// Global Settings</div>
+  <div class="duration-row" style="margin-bottom: 8px;">
+    <span class="param-name" style="width: 90px;">Accept Taps</span>
+    <button class="toggle-btn" id="accept-taps-btn">Accept Taps: On</button>
+  </div>
+  <div class="param">
+    <div class="param-header">
+      <span class="param-name">Reading Delay</span>
+      <span class="param-value" id="reading-delay-value">600ms</span>
+    </div>
+    <input type="range" id="reading-delay" min="200" max="2000" step="50" value="600">
+  </div>
+
+  <div class="btn-row">
+    <button class="save-btn" id="save-btn" disabled>Save to Board</button>
+    <button class="export-btn" id="export-btn">Export JSON</button>
+    <button class="export-btn" id="import-btn">Import</button>
+  </div>
+  <div class="btn-row">
+    <button class="export-btn" id="bake-btn" style="flex:1;">Flash States to Board</button>
+  </div>
+  <input type="file" class="file-input" id="import-file" accept=".json">
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const LED_COUNT = 40;
+const CENTER = canvas.width / 2;
+const RING_RADIUS = 180;
+const LED_RADIUS = 12;
+let readingMinMs = 600;
+let acceptTaps = true;
+let syncingAcceptTaps = false;  // suppress send while mirroring firmware echo
+let t = 0;
+let lastFrameTime = performance.now();
+
+// ── State Management ─────────────────────────────────────────────────────────
+// Colors are stored as [r, g, b, pos] where pos is 0.0–1.0 ring position.
+const DEFAULT_STATES = {
+  idle: {
+    name: 'idle',
+    preset: 'wave',
+    speed: 0.026,
+    scale: 0.18,
+    threshold: 1.0,
+    gamma: 1.4,
+    brightness: 210,
+    breaths: 0,
+    duration: 0,
+    returnTo: '',
+    colors: [[255, 255, 255, 0.0]],
+    randomColor: false,
+    transition: 'fadeblack',
+    transitionMs: 0,
+    isDefault: true
+  },
+  success: {
+    name: 'success',
+    preset: 'breathe',
+    speed: 0.046,
+    scale: 0.18,
+    threshold: 1.0,
+    gamma: 1.2,
+    brightness: 255,
+    breaths: 2,
+    duration: 1500,
+    returnTo: 'active',
+    colors: [[0, 255, 77, 0.0]],
+    randomColor: false,
+    transition: 'crossfade',
+    transitionMs: 0,
+    isDefault: true
+  },
+  failure: {
+    name: 'failure',
+    preset: 'breathe',
+    speed: 0.046,
+    scale: 0.18,
+    threshold: 1.0,
+    gamma: 1.2,
+    brightness: 255,
+    breaths: 2,
+    duration: 1500,
+    returnTo: 'idle',
+    colors: [[255, 0, 0, 0.0]],
+    randomColor: false,
+    transition: 'crossfade',
+    transitionMs: 0,
+    isDefault: true
+  },
+  reading: {
+    name: 'reading',
+    preset: 'chase',
+    speed: 0.12,
+    scale: 0.18,
+    threshold: 1.0,
+    gamma: 1.4,
+    brightness: 255,
+    breaths: 0,
+    duration: 3000,
+    returnTo: 'failure',
+    colors: [[255, 200, 0, 0.0]],
+    randomColor: false,
+    transition: 'crossfade',
+    transitionMs: 0,
+    isDefault: true
+  }
+};
+
+let states = {};
+let currentStateName = 'idle';
+let playingStateName = 'idle';
+let stateStartTime = 0;
+let isDirty = false;
+
+const STORAGE_KEY = 'led-state-manager-v2';
+
+// ── Color Position Helpers ───────────────────────────────────────────────────
+function distributeColorPositions(colors) {
+  if (colors.length === 0) return;
+  if (colors.length === 1) { colors[0][3] = 0.0; return; }
+  colors.forEach((c, i) => { c[3] = i / (colors.length - 1); });
+}
+
+function sortColorsByPos(colors) {
+  colors.sort((a, b) => a[3] - b[3]);
+}
+
+// Ensure every color has a valid pos value; if any are missing, distribute evenly.
+function ensureColorPositions(colors) {
+  if (!colors || colors.length === 0) return;
+  const hasPosData = colors.every(c => c.length >= 4 && c[3] >= 0);
+  if (!hasPosData) distributeColorPositions(colors);
+}
+
+function loadStates() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      states = JSON.parse(saved);
+      for (const name of ['idle', 'success', 'failure']) {
+        if (!states[name]) states[name] = JSON.parse(JSON.stringify(DEFAULT_STATES[name]));
+      }
+      // Migrate: ensure pos on all loaded colors
+      for (const s of Object.values(states)) {
+        if (s.colors) ensureColorPositions(s.colors);
+        if (s.randomColor === undefined) s.randomColor = false;
+        if (s.transition === undefined) s.transition = 'none';
+        if (s.transitionMs === undefined) s.transitionMs = 0;
+        delete s.nfcEnabled;  // removed; replaced by global acceptTaps
+      }
+    } else {
+      states = JSON.parse(JSON.stringify(DEFAULT_STATES));
+    }
+  } catch (e) {
+    console.warn('Failed to load states:', e);
+    states = JSON.parse(JSON.stringify(DEFAULT_STATES));
+  }
+}
+
+function saveStates() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(states));
+  } catch (e) {
+    console.warn('Failed to save states:', e);
+  }
+}
+
+function getCurrentState() {
+  return states[playingStateName] || states.idle;
+}
+
+function getEditingState() {
+  return states[currentStateName] || states.idle;
+}
+
+// ── Color Helpers ────────────────────────────────────────────────────────────
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16)
+  ];
+}
+
+// Position-aware gradient interpolation with ring wrap-around.
+// Mirrors the firmware's interpolateGradient exactly.
+function interpolateGradient(colors, position) {
+  if (!colors || colors.length === 0) return [255, 255, 255];
+  if (colors.length === 1) return [colors[0][0], colors[0][1], colors[0][2]];
+
+  // Find first stop with pos strictly > position
+  let hi = -1;
+  for (let i = 0; i < colors.length; i++) {
+    if (colors[i][3] > position) { hi = i; break; }
+  }
+
+  // hi == -1: past last stop; hi == 0: before first stop — both wrap around ring
+  if (hi < 0 || hi === 0) {
+    const cL = colors[colors.length - 1];
+    const cF = colors[0];
+    const span = (1 - cL[3]) + cF[3];
+    let t = 0;
+    if (span > 0.001) {
+      t = hi < 0 ? (position - cL[3]) / span
+                 : (1 - cL[3] + position) / span;
+    }
+    t = Math.max(0, Math.min(1, t));
+    return [
+      Math.round(cL[0] + (cF[0] - cL[0]) * t),
+      Math.round(cL[1] + (cF[1] - cL[1]) * t),
+      Math.round(cL[2] + (cF[2] - cL[2]) * t)
+    ];
+  }
+
+  const c0 = colors[hi - 1];
+  const c1 = colors[hi];
+  const span = c1[3] - c0[3];
+  const t = Math.max(0, Math.min(1, span > 0.001 ? (position - c0[3]) / span : 0));
+  return [
+    Math.round(c0[0] + (c1[0] - c0[0]) * t),
+    Math.round(c0[1] + (c1[1] - c0[1]) * t),
+    Math.round(c0[2] + (c1[2] - c0[2]) * t)
+  ];
+}
+
+// ── UI Rendering ─────────────────────────────────────────────────────────────
+function renderStateList() {
+  const list = document.getElementById('state-list');
+  list.innerHTML = '';
+
+  for (const name of Object.keys(states)) {
+    const s = states[name];
+    const item = document.createElement('div');
+    item.className = 'state-item' + (name === currentStateName ? ' active' : '');
+    item.dataset.name = name;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'state-name';
+    nameSpan.textContent = name;
+
+    const badge = document.createElement('span');
+    badge.className = 'state-badge' + (s.isDefault ? ' default' : '');
+    badge.textContent = s.isDefault ? 'default' : 'custom';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'state-delete';
+    deleteBtn.textContent = '×';
+    deleteBtn.disabled = s.isDefault;
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (confirm(`Delete state "${name}"?`)) deleteState(name);
+    };
+
+    item.appendChild(nameSpan);
+    item.appendChild(badge);
+    item.appendChild(deleteBtn);
+    item.onclick = () => selectState(name);
+    list.appendChild(item);
+  }
+
+  updateReturnToSelect();
+}
+
+function renderColorList() {
+  const list = document.getElementById('color-list');
+  const s = getEditingState();
+  list.innerHTML = '';
+
+  (s.colors || []).forEach((color, idx) => {
+    const item = document.createElement('div');
+    item.className = 'color-item';
+
+    // Swatch + color picker
+    const swatch = document.createElement('div');
+    swatch.className = 'color-swatch';
+    swatch.style.backgroundColor = rgbToHex(color[0], color[1], color[2]);
+
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = rgbToHex(color[0], color[1], color[2]);
+    picker.onchange = () => {
+      const [r, g, b] = hexToRgb(picker.value);
+      color[0] = r; color[1] = g; color[2] = b;
+      swatch.style.backgroundColor = picker.value;
+      updateGradientPreview();
+      saveStates();
+      sendColorUpdate(idx);
+    };
+    swatch.appendChild(picker);
+
+    // Position slider group
+    const posGroup = document.createElement('div');
+    posGroup.className = 'color-pos-group';
+
+    const posHeader = document.createElement('div');
+    posHeader.className = 'color-pos-header';
+
+    const posLabel = document.createElement('span');
+    posLabel.className = 'color-pos-label';
+    posLabel.textContent = 'Position';
+
+    const posVal = document.createElement('span');
+    posVal.className = 'color-pos-value';
+    posVal.textContent = (color[3] ?? 0).toFixed(2);
+
+    posHeader.appendChild(posLabel);
+    posHeader.appendChild(posVal);
+
+    const posSlider = document.createElement('input');
+    posSlider.type = 'range';
+    posSlider.min = '0';
+    posSlider.max = '1';
+    posSlider.step = '0.01';
+    posSlider.value = (color[3] ?? 0).toFixed(2);
+
+    posSlider.oninput = () => {
+      const newPos = parseFloat(posSlider.value);
+      posVal.textContent = newPos.toFixed(2);
+      const colorRef = color;   // reference into s.colors[idx]
+      colorRef[3] = newPos;
+      sortColorsByPos(s.colors);
+      updateGradientPreview();
+      saveStates();
+
+      const newIdx = s.colors.indexOf(colorRef);
+      if (newIdx >= 0 && Serial.isConnected()) {
+        debounce(`setpos-${currentStateName}-${newIdx}`, () => {
+          Serial.send(`SETPOS ${currentStateName} ${newIdx} ${newPos.toFixed(3)}`);
+          setDirty(true);
+        });
+      }
+      // Re-render after debounce so the list reorders once dragging settles
+      debounce(`rerender-colors-${currentStateName}`, () => renderColorList(), 400);
+    };
+
+    posGroup.appendChild(posHeader);
+    posGroup.appendChild(posSlider);
+
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'color-delete';
+    deleteBtn.textContent = '×';
+    deleteBtn.disabled = (s.colors || []).length <= 1;
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (s.colors.length > 1) {
+        s.colors.splice(idx, 1);
+        renderColorList();
+        updateGradientPreview();
+        saveStates();
+        sendDeleteColor(idx);
+      }
+    };
+
+    item.appendChild(swatch);
+    item.appendChild(posGroup);
+    item.appendChild(deleteBtn);
+    list.appendChild(item);
+  });
+
+  // Add button
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-color-btn';
+  addBtn.textContent = '+ Add Color';
+  addBtn.onclick = () => {
+    if (!s.colors) s.colors = [];
+    if (s.colors.length < 8) {
+      const newColor = [255, 255, 255, 1.0];
+      s.colors.push(newColor);
+      distributeColorPositions(s.colors);
+      renderColorList();
+      updateGradientPreview();
+      saveStates();
+      sendAddColor(newColor);
+    }
+  };
+  list.appendChild(addBtn);
+}
+
+function updateGradientPreview() {
+  const preview = document.getElementById('gradient-preview');
+  const s = getEditingState();
+  const colors = s.colors || [[255, 255, 255, 0]];
+
+  if (colors.length === 1) {
+    preview.style.background = rgbToHex(colors[0][0], colors[0][1], colors[0][2]);
+  } else {
+    // Use actual pos values so the preview matches what the ring shows
+    const sorted = [...colors].sort((a, b) => a[3] - b[3]);
+    const stops = sorted.map(c => {
+      const pct = ((c[3] ?? 0) * 100).toFixed(1);
+      return `${rgbToHex(c[0], c[1], c[2])} ${pct}%`;
+    }).join(', ');
+    preview.style.background = `linear-gradient(to right, ${stops})`;
+  }
+}
+
+function updateReturnToSelect() {
+  const select = document.getElementById('return-to');
+  const current = select.value;
+  select.innerHTML = '<option value="">(stay in state)</option>';
+
+  for (const name of Object.keys(states)) {
+    if (name !== currentStateName) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+  }
+
+  select.value = current;
+}
+
+function updateUIForState(name) {
+  const s = states[name];
+  if (!s) return;
+
+  document.getElementById('speed').value = s.speed;
+  document.getElementById('val-speed').textContent = s.speed.toFixed(3);
+
+  document.getElementById('scale').value = s.scale;
+  document.getElementById('val-scale').textContent = s.scale.toFixed(2);
+
+  document.getElementById('brightness').value = s.brightness;
+  document.getElementById('val-brightness').textContent = s.brightness;
+
+  document.getElementById('gamma').value = s.gamma;
+  document.getElementById('val-gamma').textContent = s.gamma.toFixed(1);
+
+  document.getElementById('breaths').value = s.breaths || 0;
+  document.getElementById('val-breaths').textContent = s.breaths || 0;
+
+  document.getElementById('duration').value = s.duration || 0;
+  document.getElementById('return-to').value = s.returnTo || '';
+
+  document.getElementById('transition-type').value = s.transition || 'none';
+  document.getElementById('transition-ms').value = s.transitionMs || 0;
+  document.getElementById('transition-ms-row').style.display =
+    (s.transition && s.transition !== 'none') ? '' : 'none';
+
+  // Preset buttons
+  document.querySelectorAll('.anim-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.preset === s.preset);
+  });
+
+  // Random color toggle
+  const rcBtn = document.getElementById('random-color-btn');
+  const rc = !!s.randomColor;
+  rcBtn.classList.toggle('active', rc);
+  rcBtn.textContent = `Random Color: ${rc ? 'On' : 'Off'}`;
+
+  renderColorList();
+  updateGradientPreview();
+}
+
+function selectState(name) {
+  currentStateName = name;
+  playingStateName = name;
+  stateStartTime = performance.now();
+  renderStateList();
+  updateUIForState(name);
+  Serial.send(`TRIGGER ${name}`);
+}
+
+function deleteState(name) {
+  if (states[name]?.isDefault) return;
+  delete states[name];
+  if (currentStateName === name) selectState('idle');
+  renderStateList();
+  saveStates();
+  Serial.send(`DELSTATE ${name}`);
+}
+
+function addState(name) {
+  name = name.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 15);
+  if (!name || states[name]) return;
+
+  states[name] = {
+    name: name,
+    preset: 'solid',
+    speed: 0.06,
+    scale: 0.18,
+    threshold: 1.0,
+    gamma: 1.4,
+    brightness: 200,
+    breaths: 0,
+    duration: 0,
+    returnTo: '',
+    colors: [[255, 255, 255, 0.0]],
+    randomColor: false,
+    isDefault: false
+  };
+
+  renderStateList();
+  selectState(name);
+  saveStates();
+  Serial.send(`ADDSTATE ${name}`);
+}
+
+// ── Serial Communication ─────────────────────────────────────────────────────
+const Serial = (() => {
+  const STALE_AFTER_MS = 10000;
+  const BAUD = 115200;
+
+  let port = null;
+  let reader = null;
+  let writer = null;
+  let readableStreamClosed = null;
+  let lineBuffer = '';
+  let lastRxAt = 0;
+
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(text, cls) {
+    const el = $('status-pill');
+    if (!el) return;
+    el.textContent = text;
+    el.className = 'status-pill' + (cls ? ' ' + cls : '');
+  }
+
+  function isSupported() { return 'serial' in navigator; }
+
+  async function connect() {
+    if (!isSupported()) { setStatus('Unsupported', ''); return; }
+    try {
+      setStatus('Connecting...', '');
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: BAUD });
+
+      const textDecoder = new TextDecoderStream();
+      readableStreamClosed = port.readable.pipeTo(textDecoder.writable).catch(() => {});
+      reader = textDecoder.readable.getReader();
+      writer = port.writable.getWriter();
+
+      lastRxAt = Date.now();
+      setStatus('Connected', 'connected');
+      $('connect-btn').disabled = true;
+      $('disconnect-btn').disabled = false;
+      setActionButtonsEnabled(true);
+      readLoop();
+
+      setTimeout(() => {
+        send('STATUS');
+        setTimeout(() => send('DUMP'), 200);
+      }, 300);
+    } catch (err) {
+      console.warn('[serial] connect failed:', err);
+      setStatus('Disconnected', '');
+      port = null;
+    }
+  }
+
+  async function readLoop() {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        lastRxAt = Date.now();
+        lineBuffer += value;
+        let nl;
+        while ((nl = lineBuffer.indexOf('\n')) >= 0) {
+          const line = lineBuffer.slice(0, nl).replace(/\r$/, '');
+          lineBuffer = lineBuffer.slice(nl + 1);
+          if (line.length) handleSerialLine(line);
+        }
+      }
+    } catch (err) {
+      console.warn('[serial] read loop ended:', err);
+    }
+  }
+
+  async function disconnect() {
+    try { if (reader) await reader.cancel(); } catch (_) {}
+    try { if (readableStreamClosed) await readableStreamClosed; } catch (_) {}
+    try { if (reader) reader.releaseLock(); } catch (_) {}
+    try { if (writer) writer.releaseLock(); } catch (_) {}
+    try { if (port) await port.close(); } catch (_) {}
+    reader = null; writer = null; port = null;
+    lineBuffer = '';
+    setStatus('Disconnected', '');
+    $('connect-btn').disabled = false;
+    $('disconnect-btn').disabled = true;
+    setActionButtonsEnabled(false);
+  }
+
+  function isConnected() { return port !== null && writer !== null; }
+
+  async function send(line) {
+    if (!writer) return false;
+    try {
+      await writer.write(new TextEncoder().encode(line + '\n'));
+      return true;
+    } catch (err) {
+      console.warn('[serial] send failed:', err);
+      return false;
+    }
+  }
+
+  return { connect, disconnect, send, isSupported, isConnected };
+})();
+
+// ── Log Panel ────────────────────────────────────────────────────────────────
+const Log = (() => {
+  const MAX_LINES = 300;
+  const lines = [];
+
+  function classifyLine(line) {
+    if (line.startsWith('[boot]')) return 'boot';
+    if (line.startsWith('[nfc]')) return 'nfc';
+    if (line.startsWith('[led]')) return 'led';
+    if (line.startsWith('[sys]')) return 'sys';
+    if (line.startsWith('[warn]')) return 'warn';
+    if (line.startsWith('[hb]')) return 'hb';
+    if (line.startsWith('[cfg]')) return 'cfg';
+    if (line.startsWith('[ok]')) return 'ok';
+    if (line.startsWith('[err]')) return 'err';
+    if (line.startsWith('[state]')) return 'state';
+    if (line.startsWith('[list]')) return 'sys';
+    return 'other';
+  }
+
+  function add(line) {
+    const type = classifyLine(line);
+    if (type === 'hb') return type;
+    lines.push({ line, type });
+    if (lines.length > MAX_LINES) lines.shift();
+    render();
+    return type;
+  }
+
+  function render() {
+    const output = document.getElementById('log-output');
+    if (!output) return;
+    output.innerHTML = lines.map(l =>
+      `<div class="log-line log-${l.type}">${escapeHtml(l.line)}</div>`
+    ).join('');
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function clear() { lines.length = 0; render(); }
+
+  return { add, clear, render };
+})();
+
+let cfgBuffer = [];
+let expectingCfg = false;
+
+function handleSerialLine(line) {
+  const type = Log.add(line);
+
+  // Key=value cfg line (boot banner / SETTAPS echo), e.g. "[cfg] acceptTaps=1"
+  if (line.startsWith('[cfg] acceptTaps=')) {
+    const raw = line.substring('[cfg] acceptTaps='.length).trim().toLowerCase();
+    mirrorAcceptTaps(raw === '1' || raw === 'true' || raw === 'on');
+    return;
+  }
+
+  // Parse config dump
+  if (line.startsWith('[cfg] {')) {
+    try {
+      const data = JSON.parse(line.substring(6));
+      if (data.stateCount !== undefined) {
+        cfgBuffer = [];
+        expectingCfg = true;
+        if (data.currentState && states[data.currentState]) {
+          playingStateName = data.currentState;
+          stateStartTime = performance.now();
+        }
+        if (data.readingMinMs !== undefined) {
+          readingMinMs = data.readingMinMs;
+          document.getElementById('reading-delay').value = readingMinMs;
+          document.getElementById('reading-delay-value').textContent = `${readingMinMs}ms`;
+        }
+        if (data.acceptTaps !== undefined) {
+          mirrorAcceptTaps(!!data.acceptTaps);
+        }
+      } else if (data.name) {
+        cfgBuffer.push(data);
+      }
+    } catch (e) {}
+  } else if (line === '[cfg] END' && expectingCfg) {
+    expectingCfg = false;
+    for (const s of cfgBuffer) {
+      // Colors from board: [[r,g,b,pos], ...] — firmware sends 4-element arrays
+      let colors = (s.colors || []).map(c => {
+        const r = c[0] ?? 255, g = c[1] ?? 255, b = c[2] ?? 255;
+        const pos = (c[3] !== undefined && c[3] >= 0) ? c[3] : -1;
+        return [r, g, b, pos];
+      });
+      if (colors.length === 0) colors = [[255, 255, 255, 0.0]];
+      ensureColorPositions(colors);
+
+      states[s.name] = {
+        name: s.name,
+        preset: s.preset || 'solid',
+        speed: s.speed || 0.06,
+        scale: s.scale || 0.18,
+        threshold: s.threshold || 1.0,
+        gamma: s.gamma || 1.4,
+        brightness: s.brightness || 200,
+        breaths: s.breaths || 0,
+        duration: s.duration || 0,
+        returnTo: s.returnTo || '',
+        colors: colors,
+        randomColor: s.randomColor || false,
+        isDefault: s.isDefault || false
+      };
+    }
+    renderStateList();
+    updateUIForState(currentStateName);
+    saveStates();
+    setDirty(false);
+  }
+
+  // Track state changes from board
+  if (line.startsWith('[state] ')) {
+    const name = line.substring(8).trim();
+    if (states[name]) {
+      playingStateName = name;
+      stateStartTime = performance.now();
+    }
+  }
+}
+
+function setActionButtonsEnabled(enabled) {
+  ['action-ok', 'action-fail', 'action-trigger', 'action-tap', 'action-dump', 'action-reset'].forEach(id => {
+    document.getElementById(id).disabled = !enabled;
+  });
+  document.getElementById('save-btn').disabled = !enabled;
+}
+
+function setDirty(dirty) {
+  isDirty = dirty;
+  const btn = document.getElementById('save-btn');
+  btn.classList.toggle('dirty', dirty);
+  btn.textContent = dirty ? 'Save to Board *' : 'Save to Board';
+}
+
+// ── Send Commands ────────────────────────────────────────────────────────────
+const debounceTimers = {};
+function debounce(key, fn, delay = 100) {
+  if (debounceTimers[key]) clearTimeout(debounceTimers[key]);
+  debounceTimers[key] = setTimeout(fn, delay);
+}
+
+function sendParamUpdate(param, value) {
+  if (!Serial.isConnected()) return;
+  debounce(`set-${currentStateName}-${param}`, () => {
+    Serial.send(`SET ${currentStateName} ${param} ${value}`);
+    setDirty(true);
+  });
+}
+
+function sendColorUpdate(index) {
+  if (!Serial.isConnected()) return;
+  const s = getEditingState();
+  const c = s.colors[index];
+  debounce(`setcolor-${currentStateName}-${index}`, () => {
+    const pos = (c[3] !== undefined) ? ` ${c[3].toFixed(3)}` : '';
+    Serial.send(`SETCOLOR ${currentStateName} ${index} ${c[0]} ${c[1]} ${c[2]}${pos}`);
+    setDirty(true);
+  });
+}
+
+function sendAddColor(color) {
+  if (!Serial.isConnected()) return;
+  const pos = (color[3] !== undefined) ? ` ${color[3].toFixed(3)}` : '';
+  Serial.send(`ADDCOLOR ${currentStateName} ${color[0]} ${color[1]} ${color[2]}${pos}`);
+  setDirty(true);
+}
+
+function sendDeleteColor(index) {
+  if (!Serial.isConnected()) return;
+  Serial.send(`DELCOLOR ${currentStateName} ${index}`);
+  setDirty(true);
+}
+
+// ── UI Event Handlers ────────────────────────────────────────────────────────
+document.getElementById('connect-btn').onclick = () => Serial.connect();
+document.getElementById('disconnect-btn').onclick = () => Serial.disconnect();
+window.addEventListener('beforeunload', () => Serial.disconnect());
+
+document.getElementById('action-ok').onclick = () => Serial.send('OK');
+document.getElementById('action-fail').onclick = () => Serial.send('FAIL');
+document.getElementById('action-trigger').onclick = () => {
+  const name = prompt('State name to trigger:', currentStateName);
+  if (name && states[name]) Serial.send(`TRIGGER ${name}`);
+};
+document.getElementById('action-dump').onclick = () => Serial.send('DUMP');
+document.getElementById('action-reset').onclick = () => {
+  if (confirm('Reset board to defaults? This will wipe all saved states.')) {
+    Serial.send('RESET');
+    setTimeout(() => Serial.send('DUMP'), 500);
+  }
+};
+document.getElementById('action-tap').onclick = () => {
+  Serial.send('TRIGGER reading');
+  const readStartMs = performance.now();
+  const successRate = 0.8;
+  const checkAndTrigger = () => {
+    const elapsed = performance.now() - readStartMs;
+    if (elapsed >= readingMinMs) {
+      Serial.send(Math.random() < successRate ? 'OK' : 'FAIL');
+    } else {
+      setTimeout(checkAndTrigger, readingMinMs - elapsed);
+    }
+  };
+  checkAndTrigger();
+};
+document.getElementById('reading-delay').oninput = (e) => {
+  readingMinMs = parseInt(e.target.value);
+  document.getElementById('reading-delay-value').textContent = `${readingMinMs}ms`;
+  debounce('setdelay', () => Serial.send(`SETDELAY ${readingMinMs}`), 100);
+};
+
+document.getElementById('log-clear-btn').onclick = () => Log.clear();
+
+document.getElementById('add-state-btn').onclick = () => {
+  const input = document.getElementById('new-state-name');
+  addState(input.value);
+  input.value = '';
+};
+document.getElementById('new-state-name').onkeypress = (e) => {
+  if (e.key === 'Enter') document.getElementById('add-state-btn').click();
+};
+
+document.getElementById('save-btn').onclick = () => {
+  Serial.send('SAVE');
+  setDirty(false);
+  const btn = document.getElementById('save-btn');
+  btn.classList.add('saved');
+  btn.textContent = 'Saved!';
+  setTimeout(() => {
+    btn.classList.remove('saved');
+    btn.textContent = 'Save to Board';
+  }, 2000);
+};
+
+// Random Color toggle
+document.getElementById('random-color-btn').onclick = () => {
+  const s = getEditingState();
+  s.randomColor = !s.randomColor;
+  const btn = document.getElementById('random-color-btn');
+  btn.classList.toggle('active', s.randomColor);
+  btn.textContent = `Random Color: ${s.randomColor ? 'On' : 'Off'}`;
+  saveStates();
+  sendParamUpdate('randomColor', s.randomColor ? 1 : 0);
+};
+
+// Accept Taps toggle (global — pushes SETTAPS to firmware)
+function updateAcceptTapsBtn() {
+  const btn = document.getElementById('accept-taps-btn');
+  btn.classList.toggle('active', acceptTaps);
+  btn.textContent = `Accept Taps: ${acceptTaps ? 'On' : 'Off'}`;
+}
+function mirrorAcceptTaps(val) {
+  // Firmware-authoritative: update UI without bouncing a SETTAPS back.
+  if (acceptTaps === val) return;
+  syncingAcceptTaps = true;
+  try {
+    acceptTaps = val;
+    updateAcceptTapsBtn();
+  } finally {
+    syncingAcceptTaps = false;
+  }
+}
+document.getElementById('accept-taps-btn').onclick = () => {
+  acceptTaps = !acceptTaps;
+  updateAcceptTapsBtn();
+  if (!syncingAcceptTaps && Serial.isConnected()) {
+    Serial.send(`SETTAPS ${acceptTaps ? 1 : 0}`);
+  }
+};
+updateAcceptTapsBtn();
+
+// Parameter sliders
+['speed', 'scale', 'brightness', 'gamma', 'breaths'].forEach(param => {
+  const slider = document.getElementById(param);
+  slider.oninput = () => {
+    const val = parseFloat(slider.value);
+    const s = getEditingState();
+    s[param] = val;
+    document.getElementById(`val-${param}`).textContent =
+      param === 'brightness' || param === 'breaths' ? val : val.toFixed(param === 'speed' ? 3 : param === 'gamma' ? 1 : 2);
+    saveStates();
+    sendParamUpdate(param, val);
+  };
+});
+
+document.getElementById('duration').oninput = (e) => {
+  const val = parseInt(e.target.value) || 0;
+  const s = getEditingState();
+  s.duration = val;
+  saveStates();
+  sendParamUpdate('duration', val);
+};
+
+document.getElementById('return-to').onchange = (e) => {
+  const val = e.target.value;
+  const s = getEditingState();
+  s.returnTo = val;
+  saveStates();
+  sendParamUpdate('returnTo', val);
+};
+
+document.getElementById('transition-type').onchange = (e) => {
+  const val = e.target.value;
+  const s = getEditingState();
+  s.transition = val;
+  saveStates();
+  sendParamUpdate('transition', val);
+  document.getElementById('transition-ms-row').style.display = (val !== 'none') ? '' : 'none';
+};
+
+document.getElementById('transition-ms').oninput = (e) => {
+  const val = parseInt(e.target.value) || 0;
+  const s = getEditingState();
+  s.transitionMs = val;
+  saveStates();
+  sendParamUpdate('transitionms', val);
+};
+
+// Preset buttons
+document.querySelectorAll('.anim-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.anim-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const preset = btn.dataset.preset;
+    const s = getEditingState();
+    s.preset = preset;
+    saveStates();
+    sendParamUpdate('preset', preset);
+  };
+});
+
+// Export/Import
+document.getElementById('export-btn').onclick = () => {
+  const data = { version: 2, states: Object.values(states) };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'led-states.json';
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+document.getElementById('import-btn').onclick = () => {
+  document.getElementById('import-file').click();
+};
+
+document.getElementById('import-file').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (data.states) {
+      for (const s of data.states) {
+        if (s.name) {
+          if (s.colors) ensureColorPositions(s.colors);
+          if (s.randomColor === undefined) s.randomColor = false;
+          if (s.transition === undefined) s.transition = 'none';
+          if (s.transitionMs === undefined) s.transitionMs = 0;
+          delete s.nfcEnabled;  // removed; replaced by global acceptTaps
+          states[s.name] = {
+            ...s,
+            isDefault: ['idle', 'success', 'failure', 'reading', 'active'].includes(s.name)
+          };
+        }
+      }
+      renderStateList();
+      updateUIForState(currentStateName);
+      saveStates();
+
+      if (Serial.isConnected()) {
+        Serial.send('IMPORT');
+        setTimeout(() => {
+          Serial.send(JSON.stringify(data));
+          Serial.send('ENDIMPORT');
+          setDirty(true);
+        }, 100);
+      }
+    }
+  } catch (err) {
+    alert('Failed to import: ' + err.message);
+  }
+
+  e.target.value = '';
+};
+
+// Flash States to Board
+document.getElementById('bake-btn').onclick = () => {
+  if (!Serial.isConnected()) {
+    alert('Not connected — connect to the board first.');
+    return;
+  }
+
+  const stateList = Object.values(states);
+  if (stateList.length === 0) { alert('No states to send.'); return; }
+
+  const data = { version: 2, states: stateList };
+  const json = JSON.stringify(data);
+
+  Serial.send('IMPORT');
+  setTimeout(() => {
+    Serial.send(json);
+    Serial.send('ENDIMPORT');
+    // Give the board a moment to process before saving to NVS
+    setTimeout(() => {
+      Serial.send('SAVE');
+      setDirty(false);
+    }, 300);
+  }, 100);
+};
+
+// ── Animation Rendering ──────────────────────────────────────────────────────
+function getColorForLed(i, state, elapsed) {
+  const angle = (i / LED_COUNT) * Math.PI * 2;
+  const position = i / LED_COUNT;
+  const colors = state.colors || [[255, 255, 255, 0]];
+
+  // Base color from gradient at physical ring position (used when randomColor is off)
+  const baseColor = interpolateGradient(colors, position);
+  const tintR = baseColor[0] / 255;
+  const tintG = baseColor[1] / 255;
+  const tintB = baseColor[2] / 255;
+
+  let val = 0;
+
+  switch (state.preset) {
+    case 'solid':
+      val = 1;
+      break;
+
+    case 'gradient':
+      return `rgb(${Math.round(baseColor[0] * state.brightness / 255)}, ${Math.round(baseColor[1] * state.brightness / 255)}, ${Math.round(baseColor[2] * state.brightness / 255)})`;
+
+    case 'noise': {
+      const nx = Math.cos(angle) * state.scale * 10;
+      const ny = Math.sin(angle) * state.scale * 10;
+      const noiseVal = (Math.sin(nx + t) * Math.cos(ny + t * 0.7) + 1) / 2;
+      if (state.randomColor) {
+        // Color position driven by noise value — mirrors firmware behavior
+        const c = interpolateGradient(colors, noiseVal);
+        const bri = Math.pow(noiseVal, state.gamma) * state.brightness / 255;
+        return `rgb(${Math.round(c[0]*bri)}, ${Math.round(c[1]*bri)}, ${Math.round(c[2]*bri)})`;
+      }
+      val = Math.pow(noiseVal, state.gamma);
+      break;
+    }
+
+    case 'breathe': {
+      let breath;
+      if (state.breaths > 0 && state.duration > 0) {
+        const period = state.duration / state.breaths;
+        const phase = (elapsed / period) * Math.PI * 2 - Math.PI / 2;
+        breath = (Math.sin(phase) + 1) / 2;
+      } else {
+        breath = (Math.sin(t * 2) + 1) / 2;
+      }
+      val = Math.pow(breath, state.gamma);
+      break;
+    }
+
+    case 'chase': {
+      const pos = (t * 2) % (Math.PI * 2);
+      let dist = Math.abs(angle - pos);
+      if (dist > Math.PI) dist = Math.PI * 2 - dist;
+      const tailLen = 0.8;
+      if (dist < tailLen) val = 1 - dist / tailLen;
+      break;
+    }
+
+    case 'wave': {
+      const wave = (Math.sin(angle * 3 - t * 3) + 1) / 2;
+      val = Math.pow(wave, state.gamma);
+      break;
+    }
+
+    case 'sparkle': {
+      const sv = Math.pow(Math.random() > 0.9 ? 1 : 0.1 + Math.random() * 0.2, state.gamma);
+      if (state.randomColor) {
+        // Slowly-drifting per-LED color position — approximates firmware's inoise8 lookup
+        const colorPos = (Math.sin(i * 0.73 + t * 0.05) + 1) / 2;
+        const c = interpolateGradient(colors, colorPos);
+        const bri = sv * state.brightness / 255;
+        return `rgb(${Math.round(c[0]*bri)}, ${Math.round(c[1]*bri)}, ${Math.round(c[2]*bri)})`;
+      }
+      val = sv;
+      break;
+    }
+
+    case 'rainbow': {
+      const hue = (position * 360 + t * 25) % 360;
+      return `hsl(${hue}, 90%, ${state.brightness / 255 * 50}%)`;
+    }
+
+    default:
+      val = 1;
+  }
+
+  const r = Math.round(val * state.brightness * tintR);
+  const g = Math.round(val * state.brightness * tintG);
+  const b = Math.round(val * state.brightness * tintB);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function drawRing() {
+  const now = performance.now();
+  const dt = (now - lastFrameTime) / 16;
+  lastFrameTime = now;
+
+  const state = getCurrentState();
+  t += (state.speed || 0.06) * dt;
+
+  if (state.duration > 0 && state.returnTo && states[state.returnTo]) {
+    const elapsed = now - stateStartTime;
+    if (elapsed >= state.duration) {
+      playingStateName = state.returnTo;
+      stateStartTime = now;
+    }
+  }
+
+  const elapsed = now - stateStartTime;
+
+  ctx.fillStyle = '#080c10';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < LED_COUNT; i++) {
+    const angle = (i / LED_COUNT) * Math.PI * 2 - Math.PI / 2;
+    const x = CENTER + Math.cos(angle) * RING_RADIUS;
+    const y = CENTER + Math.sin(angle) * RING_RADIUS;
+
+    const color = getColorForLed(i, state, elapsed);
+
+    ctx.beginPath();
+    ctx.arc(x, y, LED_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    const gradient = ctx.createRadialGradient(x, y, LED_RADIUS * 0.5, x, y, LED_RADIUS * 2);
+    gradient.addColorStop(0, color.replace('rgb', 'rgba').replace(')', ', 0.3)'));
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.beginPath();
+    ctx.arc(x, y, LED_RADIUS * 2, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  }
+
+  requestAnimationFrame(drawRing);
+}
+
+// ── Initialize ───────────────────────────────────────────────────────────────
+loadStates();
+renderStateList();
+selectState('idle');
+drawRing();
+
+if (!Serial.isSupported()) {
+  document.getElementById('connect-btn').disabled = true;
+  document.getElementById('status-pill').textContent = 'Browser unsupported';
+}
+</script>
+</body>
+</html>
