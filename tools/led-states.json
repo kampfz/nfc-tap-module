@@ -4,118 +4,97 @@
     {
       "name": "idle",
       "preset": "wave",
-      "speed": 0.03,
+      "speed": 0.026,
       "scale": 0.18,
-      "threshold": 1,
+      "threshold": 1.0,
       "gamma": 1.4,
       "brightness": 210,
       "breaths": 0,
       "duration": 0,
       "returnTo": "",
-      "colors": [
-        [
-          250,
-          250,
-          250,
-          0
-        ]
-      ],
+      "isDefault": true,
       "randomColor": false,
-      "isDefault": true
+      "transition": "fadeblack",
+      "transitionMs": 0,
+      "colors": [
+        [255, 255, 255, 0.0]
+      ]
     },
     {
       "name": "success",
       "preset": "breathe",
       "speed": 0.046,
       "scale": 0.18,
-      "threshold": 1,
+      "threshold": 1.0,
       "gamma": 1.2,
       "brightness": 255,
       "breaths": 2,
       "duration": 1500,
-      "returnTo": "idle",
-      "colors": [
-        [
-          0,
-          255,
-          0,
-          0
-        ]
-      ],
+      "returnTo": "active",
+      "isDefault": true,
       "randomColor": false,
-      "isDefault": true
+      "transition": "crossfade",
+      "transitionMs": 0,
+      "colors": [
+        [0, 255, 0, 0.0]
+      ]
     },
     {
       "name": "failure",
       "preset": "breathe",
       "speed": 0.046,
       "scale": 0.18,
-      "threshold": 1,
+      "threshold": 1.0,
       "gamma": 1.2,
       "brightness": 255,
       "breaths": 2,
       "duration": 1500,
       "returnTo": "idle",
-      "colors": [
-        [
-          255,
-          0,
-          0,
-          0
-        ]
-      ],
+      "isDefault": true,
       "randomColor": false,
-      "isDefault": true
-    },
-    {
-      "name": "loading",
-      "preset": "chase",
-      "speed": 0.06,
-      "scale": 0.18,
-      "threshold": 1,
-      "gamma": 1.4,
-      "brightness": 200,
-      "breaths": 0,
-      "duration": 0,
-      "returnTo": "",
+      "transition": "crossfade",
+      "transitionMs": 0,
       "colors": [
-        [
-          0,
-          0,
-          255,
-          0
-        ]
-      ],
-      "randomColor": false,
-      "isDefault": false
+        [255, 0, 0, 0.0]
+      ]
     },
     {
       "name": "active",
       "preset": "noise",
-      "speed": 0.038,
-      "scale": 0.45,
-      "threshold": 1,
+      "speed": 0.032,
+      "scale": 0.18,
+      "threshold": 1.0,
       "gamma": 1.4,
-      "brightness": 200,
+      "brightness": 210,
       "breaths": 0,
       "duration": 0,
       "returnTo": "",
+      "isDefault": true,
+      "randomColor": false,
+      "transition": "crossfade",
+      "transitionMs": 0,
       "colors": [
-        [
-          212,
-          0,
-          255,
-          0.3
-        ],
-        [
-          0,
-          128,
-          128,
-          1
-        ]
-      ],
-      "randomColor": true,
-      "isDefault": false
+        [0, 20, 255, 0.0]
+      ]
+    },
+    {
+      "name": "reading",
+      "preset": "chase",
+      "speed": 0.12,
+      "scale": 0.18,
+      "threshold": 1.0,
+      "gamma": 1.4,
+      "brightness": 255,
+      "breaths": 0,
+      "duration": 3000,
+      "returnTo": "failure",
+      "isDefault": true,
+      "randomColor": false,
+      "transition": "crossfade",
+      "transitionMs": 0,
+      "colors": [
+        [255, 200, 0, 0.0]
+      ]
     }
   ]
 }
