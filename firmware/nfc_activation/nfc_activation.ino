@@ -1074,6 +1074,8 @@ void processImportLine(const String& line) {
       strncpy(s->returnTo, stateObj["returnTo"] | "", MAX_STATE_NAME);
       s->returnTo[MAX_STATE_NAME] = '\0';
       s->randomColor = stateObj["randomColor"] | false;
+      s->transition = transitionFromString(stateObj["transition"] | "none");
+      s->transitionMs = stateObj["transitionMs"] | 0;
 
       JsonArray colors = stateObj["colors"];
       s->colorCount = 0;

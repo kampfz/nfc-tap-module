@@ -745,7 +745,7 @@ const DEFAULT_STATES = {
     breaths: 2,
     duration: 1500,
     returnTo: 'active',
-    colors: [[0, 255, 77, 0.0]],
+    colors: [[0, 255, 0, 0.0]],
     randomColor: false,
     transition: 'crossfade',
     transitionMs: 0,
@@ -763,6 +763,23 @@ const DEFAULT_STATES = {
     duration: 1500,
     returnTo: 'idle',
     colors: [[255, 0, 0, 0.0]],
+    randomColor: false,
+    transition: 'crossfade',
+    transitionMs: 0,
+    isDefault: true
+  },
+  active: {
+    name: 'active',
+    preset: 'noise',
+    speed: 0.032,
+    scale: 0.18,
+    threshold: 1.0,
+    gamma: 1.4,
+    brightness: 210,
+    breaths: 0,
+    duration: 0,
+    returnTo: '',
+    colors: [[0, 20, 255, 0.0]],
     randomColor: false,
     transition: 'crossfade',
     transitionMs: 0,
@@ -818,7 +835,7 @@ function loadStates() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       states = JSON.parse(saved);
-      for (const name of ['idle', 'success', 'failure']) {
+      for (const name of ['idle', 'success', 'failure', 'active', 'reading']) {
         if (!states[name]) states[name] = JSON.parse(JSON.stringify(DEFAULT_STATES[name]));
       }
       // Migrate: ensure pos on all loaded colors
