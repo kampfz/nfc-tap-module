@@ -102,6 +102,7 @@ struct LedState {
 
 // ── Timing ───────────────────────────────────────────────────────────────────
 #define TAP_COOLDOWN_MS      1500
+#define CARD_RELEASE_MS      400    // field must read empty this long before re-arming a tap
 #define HEARTBEAT_MS         5000
 #define NFC_HEALTH_CHECK_MS  5000   // how often to probe PN532 while connected
 #define NFC_RETRY_MS         3000   // how often to attempt re-init when lost
@@ -143,7 +144,7 @@ const char* presetToString(PresetId p) {
 // ── State Storage ────────────────────────────────────────────────────────────
 LedState states[MAX_STATES];
 uint8_t stateCount = 0;
-int8_t currentStateIdx = -1;
+volatile int8_t currentStateIdx = -1;  // volatile: read by nfcTask (core 0), written by loop (core 1)
 int8_t pendingStateIdx = -1;
 unsigned long stateStartMs = 0;
 float noiseT = 0.0f;
@@ -1386,6 +1387,23 @@ bool readNdefGuestData() {
   return true;
 }
 
+// True while the ring is showing a result flash (success/failure) that a fresh
+// tap would cut short. Mirrors the Mega sketch's "poll only in idle/session"
+// guard, adapted to our dynamic state set: rather than a state whitelist, we
+// block just the two feedback states and accept taps everywhere else.
+//
+// NOTE: "reading" is intentionally NOT blocked. When a card is pulled before its
+// NDEF read completes, the firmware stays in "reading" and waits for the guest
+// to re-present the card (see loop(): nfcReadComplete handling). Blocking taps
+// here would kill that retry path until "reading" times out to "failure".
+bool stateBlocksTaps() {
+  int8_t idx = currentStateIdx;  // single-byte volatile read; atomic on this MCU
+  if (idx < 0 || idx >= stateCount) return false;
+  const char* n = states[idx].name;
+  return strcmp(n, "success") == 0 ||
+         strcmp(n, "failure") == 0;
+}
+
 // ── NFC Task (Core 0) ────────────────────────────────────────────────────────
 // All I2C / PN532 blocking operations run here so the LED loop on core 1
 // is never stalled. Uses getFirmwareVersion() as a health probe because
@@ -1411,6 +1429,14 @@ void nfcTask(void* pvParameters) {
 
   unsigned long lastCheckMs = millis();
 
+  // Presence latch: a held card re-selects on every poll, so we only accept a
+  // tap on the rising edge (field empty → card present). The card must then be
+  // lifted — read empty for CARD_RELEASE_MS — before another tap can fire. The
+  // release window absorbs the PN532's occasional false-empty polls while a
+  // card is genuinely held.
+  bool cardPresent = false;
+  unsigned long lastSeenMs = 0;
+
   for (;;) {
     unsigned long now = millis();
 
@@ -1418,21 +1444,29 @@ void nfcTask(void* pvParameters) {
       // Poll for a card tap (skipped when global gate is off)
       uint8_t uid[7] = {};
       uint8_t uidLen = 0;
-      if (acceptTaps && nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLen, 50)) {
-        if ((now - lastTapMs) > TAP_COOLDOWN_MS) {
-          lastTapMs = now;
-          String s = uidToWaveId(uid, uidLen);
-          strncpy(nfcPendingUid, s.c_str(), sizeof(nfcPendingUid) - 1);
-          nfcPendingUid[sizeof(nfcPendingUid) - 1] = '\0';
+      // Gate short-circuits the I2C poll entirely when taps are paused.
+      bool detected = acceptTaps && nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLen, 50);
+      if (detected) lastSeenMs = now;
+      // Re-arm only after the field has been empty long enough.
+      if (cardPresent && (now - lastSeenMs) > CARD_RELEASE_MS) cardPresent = false;
 
-          // Signal card detected (triggers "reading" state in loop)
-          nfcCardDetected = true;
+      // stateBlocksTaps() keeps the result flash (success/failure) from being
+      // interrupted by a new tap; presence tracking above still runs. "reading"
+      // stays tappable so an early-pulled card can be re-presented to retry.
+      if (detected && !cardPresent && !stateBlocksTaps() && (now - lastTapMs) > TAP_COOLDOWN_MS) {
+        cardPresent = true;
+        lastTapMs = now;
+        String s = uidToWaveId(uid, uidLen);
+        strncpy(nfcPendingUid, s.c_str(), sizeof(nfcPendingUid) - 1);
+        nfcPendingUid[sizeof(nfcPendingUid) - 1] = '\0';
 
-          // Read NDEF guest data from card (writes to nfcPending* globals)
-          readNdefGuestData();
+        // Signal card detected (triggers "reading" state in loop)
+        nfcCardDetected = true;
 
-          nfcNewScan = true;  // signal loop() to print and forward
-        }
+        // Read NDEF guest data from card (writes to nfcPending* globals)
+        readNdefGuestData();
+
+        nfcNewScan = true;  // signal loop() to print and forward
       }
 
       // Health check: probe reader every NFC_HEALTH_CHECK_MS
