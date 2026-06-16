@@ -37,6 +37,16 @@
  *   - Host sends: "DELCOLOR <state> <index>" — remove color from gradient
  *   - Host sends: "SETCOLOR <state> <index> <r> <g> <b>" — modify color
  *   - Host sends: "IMPORT <json>" — import full config (multi-line, ends with ENDIMPORT)
+ *   - Host sends: "ADDRESET <uid>" — designate a UID as a reset card (no arg = last scanned)
+ *   - Host sends: "DELRESET <uid>" — remove a reset card
+ *   - Host sends: "LISTRESET" — list reset card UIDs
+ *
+ * Reset cards:
+ *   - When a reset card is tapped, the ring hard-resets to RESET_HOME_STATE
+ *     ("idle"), re-enables tap intake, and clears any in-flight scan. This
+ *     bypasses the acceptTaps gate and the success/failure/reading guards, so
+ *     it recovers the activation even if it has wedged. Reset cards emit
+ *     "[reset] <uid>" instead of "[scan] ..." — the host never sees them as a tap.
  *
  * Libraries: Adafruit PN532, FastLED, ArduinoJson
  * Board: Arduino ESP32 Boards — "Arduino Nano ESP32"
@@ -49,6 +59,11 @@
 #define MAX_COLORS        8
 #define MAX_STATE_NAME    15
 #define MAX_BRIGHTNESS    60
+
+// ── Reset cards ────────────────────────────────────────────────────────────────
+#define MAX_RESET_UIDS    8
+#define MAX_UID_STR       24       // matches nfcPendingUid sizing
+#define RESET_HOME_STATE  "idle"   // state a reset card forces the ring back to
 
 // ── Animation Preset Enum ────────────────────────────────────────────────────
 enum PresetId : uint8_t {
@@ -172,6 +187,12 @@ bool nfcPendingValid = false;        // true = valid NDEF guest data parsed
 bool nfcReadComplete = false;        // true = NDEF read finished (vs failed early)
 bool nfcResultPending = false;       // true = waiting for reading min time before triggering
 bool nfcResultSuccess = false;       // true = trigger success, false = trigger failure
+
+// ── Reset Card State ─────────────────────────────────────────────────────────
+char resetUids[MAX_RESET_UIDS][MAX_UID_STR];  // enrolled reset-card UIDs
+uint8_t resetUidCount = 0;
+volatile bool nfcResetRequested = false;      // set by nfcTask (core 0), cleared by loop (core 1)
+char nfcResetUid[MAX_UID_STR] = "";           // UID that triggered the reset (for logging)
 
 // ── Transition Runtime ───────────────────────────────────────────────────────
 bool inTransition = false;
@@ -298,6 +319,14 @@ LedState* getStateByName(const char* name) {
 
 LedState* getCurrentState() {
   return (currentStateIdx >= 0 && currentStateIdx < stateCount) ? &states[currentStateIdx] : nullptr;
+}
+
+// ── Reset Card Lookup ────────────────────────────────────────────────────────
+bool isResetUid(const char* uid) {
+  for (uint8_t i = 0; i < resetUidCount; i++) {
+    if (!strcmp(resetUids[i], uid)) return true;
+  }
+  return false;
 }
 
 // ── Color Position Helpers ───────────────────────────────────────────────────
@@ -508,6 +537,12 @@ void executeTransition(unsigned long now) {
     Serial.print("[state] ");
     Serial.println(states[currentStateIdx].name);
   }
+  // Always clear the request, even when it was a redundant trigger of the
+  // state we're already in. Otherwise pendingStateIdx stays pinned >= 0 and
+  // the duration-based auto-advance (which requires pendingStateIdx < 0) never
+  // fires -- the root cause of the ring getting stuck in "reading" when a
+  // failed/flaky card re-triggers "reading" while it's already active.
+  pendingStateIdx = -1;
 }
 
 // ── NVS Persistence ──────────────────────────────────────────────────────────
@@ -519,6 +554,14 @@ void saveStatesToNvs() {
   prefs.putUChar("count", stateCount);
   prefs.putUShort("readingMs", readingMinMs);
   prefs.putBool("acceptTaps", acceptTaps);
+
+  // Reset card UIDs
+  prefs.putUChar("rstc", resetUidCount);
+  for (uint8_t i = 0; i < resetUidCount; i++) {
+    char rk[8];
+    snprintf(rk, sizeof(rk), "rst%d", i);
+    prefs.putString(rk, resetUids[i]);
+  }
 
   // Store each state as JSON
   for (uint8_t i = 0; i < stateCount; i++) {
@@ -566,6 +609,18 @@ void loadStatesFromNvs() {
   // Load global settings
   readingMinMs = prefs.getUShort("readingMs", READING_MIN_DEFAULT);
   acceptTaps = prefs.getBool("acceptTaps", true);
+
+  // Reset card UIDs (loaded before the count==0 early-return below so they
+  // survive even on a device that has no custom states saved).
+  resetUidCount = prefs.getUChar("rstc", 0);
+  if (resetUidCount > MAX_RESET_UIDS) resetUidCount = MAX_RESET_UIDS;
+  for (uint8_t i = 0; i < resetUidCount; i++) {
+    char rk[8];
+    snprintf(rk, sizeof(rk), "rst%d", i);
+    String v = prefs.getString(rk, "");
+    strncpy(resetUids[i], v.c_str(), MAX_UID_STR - 1);
+    resetUids[i][MAX_UID_STR - 1] = '\0';
+  }
 
   uint8_t count = prefs.getUChar("count", 0);
   if (count == 0) {
@@ -1028,6 +1083,67 @@ bool setPos(const String& line) {
   return true;
 }
 
+// ── Reset Card Management ────────────────────────────────────────────────────
+bool addResetUid(const String& uid) {
+  String u = uid;
+  u.trim();
+  if (u.length() == 0) {
+    Serial.println("[err] empty uid (tap a card first, or use ADDRESET <uid>)");
+    return false;
+  }
+  if (u.length() >= MAX_UID_STR) {
+    Serial.println("[err] uid too long");
+    return false;
+  }
+  if (isResetUid(u.c_str())) {
+    Serial.print("[err] already a reset card: ");
+    Serial.println(u);
+    return false;
+  }
+  if (resetUidCount >= MAX_RESET_UIDS) {
+    Serial.println("[err] max reset cards reached");
+    return false;
+  }
+  strncpy(resetUids[resetUidCount], u.c_str(), MAX_UID_STR - 1);
+  resetUids[resetUidCount][MAX_UID_STR - 1] = '\0';
+  resetUidCount++;
+  Serial.print("[ok] added reset card: ");
+  Serial.println(u);
+  Serial.println("[sys]  send SAVE to persist");
+  return true;
+}
+
+bool delResetUid(const String& uid) {
+  String u = uid;
+  u.trim();
+  int8_t idx = -1;
+  for (uint8_t i = 0; i < resetUidCount; i++) {
+    if (!strcmp(resetUids[i], u.c_str())) { idx = i; break; }
+  }
+  if (idx < 0) {
+    Serial.print("[err] not a reset card: ");
+    Serial.println(u);
+    return false;
+  }
+  for (uint8_t i = idx; i < resetUidCount - 1; i++) {
+    strcpy(resetUids[i], resetUids[i + 1]);
+  }
+  resetUidCount--;
+  Serial.print("[ok] deleted reset card: ");
+  Serial.println(u);
+  Serial.println("[sys]  send SAVE to persist");
+  return true;
+}
+
+void listResetUids() {
+  Serial.print("[reset] ");
+  for (uint8_t i = 0; i < resetUidCount; i++) {
+    if (i > 0) Serial.print(",");
+    Serial.print(resetUids[i]);
+  }
+  Serial.println();
+}
+
 void processImportLine(const String& line) {
   if (line == "ENDIMPORT") {
     // Parse accumulated JSON
@@ -1200,6 +1316,19 @@ void processSerial() {
         }
         Serial.println();
       }
+      else if (serialBuffer.startsWith("ADDRESET ")) {
+        addResetUid(serialBuffer.substring(9));
+      }
+      else if (serialBuffer == "ADDRESET") {
+        // No arg: enroll the most recently scanned UID (tap card, then ADDRESET).
+        addResetUid(String(nfcPendingUid));
+      }
+      else if (serialBuffer.startsWith("DELRESET ")) {
+        delResetUid(serialBuffer.substring(9));
+      }
+      else if (serialBuffer == "LISTRESET") {
+        listResetUids();
+      }
       else {
         Serial.print("[err] unknown command: ");
         Serial.println(serialBuffer);
@@ -1223,6 +1352,9 @@ void emitStatusBanner() {
   Serial.print("[sys]  ");
   Serial.print(stateCount);
   Serial.println(" states loaded");
+  Serial.print("[sys]  ");
+  Serial.print(resetUidCount);
+  Serial.println(" reset cards loaded");
   Serial.println("[sys]  Setup complete.");
 }
 
@@ -1441,32 +1573,48 @@ void nfcTask(void* pvParameters) {
     unsigned long now = millis();
 
     if (nfcAvailable) {
-      // Poll for a card tap (skipped when global gate is off)
+      // Always run the I2C poll, even when acceptTaps is off, so reset cards
+      // can recover the activation regardless of the tap gate. The gate is
+      // applied per-tap below for normal guest taps only.
       uint8_t uid[7] = {};
       uint8_t uidLen = 0;
-      // Gate short-circuits the I2C poll entirely when taps are paused.
-      bool detected = acceptTaps && nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLen, 50);
+      bool detected = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLen, 50);
       if (detected) lastSeenMs = now;
       // Re-arm only after the field has been empty long enough.
       if (cardPresent && (now - lastSeenMs) > CARD_RELEASE_MS) cardPresent = false;
 
-      // stateBlocksTaps() keeps the result flash (success/failure) from being
-      // interrupted by a new tap; presence tracking above still runs. "reading"
-      // stays tappable so an early-pulled card can be re-presented to retry.
-      if (detected && !cardPresent && !stateBlocksTaps() && (now - lastTapMs) > TAP_COOLDOWN_MS) {
-        cardPresent = true;
-        lastTapMs = now;
+      // Rising edge of a presented card (respecting the release latch + cooldown).
+      if (detected && !cardPresent && (now - lastTapMs) > TAP_COOLDOWN_MS) {
         String s = uidToWaveId(uid, uidLen);
-        strncpy(nfcPendingUid, s.c_str(), sizeof(nfcPendingUid) - 1);
-        nfcPendingUid[sizeof(nfcPendingUid) - 1] = '\0';
 
-        // Signal card detected (triggers "reading" state in loop)
-        nfcCardDetected = true;
+        if (isResetUid(s.c_str())) {
+          // RESET CARD: hard-recover the activation. Deliberately bypasses
+          // acceptTaps and stateBlocksTaps() so it works even when the ring is
+          // wedged in "reading"/"success"/"failure" or taps are gated off by
+          // the host. Does NOT emit a scan -- loop() handles the reset.
+          cardPresent = true;
+          lastTapMs = now;
+          strncpy(nfcResetUid, s.c_str(), sizeof(nfcResetUid) - 1);
+          nfcResetUid[sizeof(nfcResetUid) - 1] = '\0';
+          nfcResetRequested = true;
+        }
+        else if (acceptTaps && !stateBlocksTaps()) {
+          // Normal guest tap. stateBlocksTaps() keeps the result flash
+          // (success/failure) from being interrupted; "reading" stays tappable
+          // so an early-pulled card can be re-presented to retry.
+          cardPresent = true;
+          lastTapMs = now;
+          strncpy(nfcPendingUid, s.c_str(), sizeof(nfcPendingUid) - 1);
+          nfcPendingUid[sizeof(nfcPendingUid) - 1] = '\0';
 
-        // Read NDEF guest data from card (writes to nfcPending* globals)
-        readNdefGuestData();
+          // Signal card detected (triggers "reading" state in loop)
+          nfcCardDetected = true;
 
-        nfcNewScan = true;  // signal loop() to print and forward
+          // Read NDEF guest data from card (writes to nfcPending* globals)
+          readNdefGuestData();
+
+          nfcNewScan = true;  // signal loop() to print and forward
+        }
       }
 
       // Health check: probe reader every NFC_HEALTH_CHECK_MS
@@ -1544,6 +1692,34 @@ void loop() {
     lastHeartbeatMs = now;
     Serial.print("[hb] ");
     Serial.println(now);
+  }
+
+  // Reset card scanned - hard-recover the activation (see nfcTask). Handled
+  // before the card-detected/scan logic so a reset always takes priority.
+  if (nfcResetRequested) {
+    nfcResetRequested = false;
+    Serial.print("[reset] state cleared by card ");
+    Serial.println(nfcResetUid);
+
+    // Drop any in-flight scan handshake so no stale success/failure fires.
+    nfcCardDetected  = false;
+    nfcNewScan       = false;
+    nfcResultPending = false;
+    nfcResultSuccess = false;
+
+    // Re-enable tap intake -- the whole point of a reset card.
+    acceptTaps = true;
+
+    // Force straight to the home state, bypassing the pending/transition path
+    // so recovery works even if pendingStateIdx is wedged.
+    int8_t homeIdx = findStateByName(RESET_HOME_STATE);
+    if (homeIdx < 0) homeIdx = 0;
+    pendingStateIdx = -1;
+    inTransition    = false;
+    currentStateIdx = homeIdx;
+    stateStartMs    = now;
+    Serial.print("[state] ");
+    Serial.println(states[currentStateIdx].name);
   }
 
   // Card detected - trigger "reading" state if it exists

@@ -75,6 +75,7 @@ On first flash, the firmware writes its default LED states to ESP32 flash (NVS) 
 - Emits scan data + heartbeat + state changes over USB Serial (115200 baud)
 - Runs a dynamic state machine driving the LED ring (idle / active / reading / success / failure, plus any custom states added via the dev tool)
 - Accepts serial commands to trigger states, modify state parameters, and import/export configs
+- Supports **reset cards** — designated UIDs that, when tapped, hard-reset the ring to `idle` and re-enable taps even if the device has wedged (see [Reset cards](#reset-cards))
 
 ### Default LED states
 
@@ -122,6 +123,16 @@ Browser-based editor and serial debug tool. **Requires Chrome or Edge** (Web Ser
 
 All edits in the dev tool send commands to the board in real time. To make changes permanent, click **Save to Board** (writes to NVS). **Reset** wipes the board back to compiled defaults.
 
+### Reset cards
+
+The **Reset Cards** panel (below Global Settings) manages cards that recover the activation when tapped — handy if the ring gets stuck or taps are paused. The enrolled list syncs live from the board on connect.
+
+1. Tap the card you want to dedicate — its UID appears on the **Enroll last tapped card** button
+2. Click that button (or type a UID and **+ Add**)
+3. Click **Save to Board** to persist the enrollment to NVS
+
+Remove a card with the `✕` next to it. See [Reset cards](#reset-cards-1) under the protocol for what happens on a reset tap.
+
 ---
 
 ## PN532 Diagnostic Sketch
@@ -146,6 +157,8 @@ Reference for testing without the dev tool — any serial monitor will work.
 | `[hb] <millis>` | Heartbeat, every 5s |
 | `[state] <name>` | Emitted on every state change |
 | `[cfg] acceptTaps=<0\|1>` | Echoed on boot and after each `SETTAPS` |
+| `[reset] state cleared by card <uid>` | A reset card was tapped (see [Reset cards](#reset-cards-1)) |
+| `[reset] <uid>,<uid>,...` | `LISTRESET` reply — enrolled reset UIDs (empty if none) |
 | `[ok] ...` / `[err] ...` | Command acknowledgements |
 
 ### Host → Board
@@ -169,10 +182,19 @@ Reference for testing without the dev tool — any serial monitor will work.
 | `DELCOLOR <state> <idx>` | Remove a color stop |
 | `SETPOS <state> <idx> <pos>` | Reposition a gradient stop (0.0–1.0) |
 | `IMPORT` | Begin JSON state import (then send JSON + `ENDIMPORT`) |
+| `ADDRESET <uid>` | Enroll a UID as a reset card (no arg = last scanned) |
+| `DELRESET <uid>` | Remove a reset card |
+| `LISTRESET` | List enrolled reset UIDs (replies `[reset] <uid>,...`) |
 
 Cards must be held on the reader for ~1 second to read the NDEF record; quick taps only capture the UID.
 
 The firmware enforces a `TAP_COOLDOWN_MS` of 1500ms between scans to prevent double-fires.
+
+### Reset cards
+
+A reset card is any NFC card whose UID is enrolled in the reset list (max 8, persisted to NVS on `SAVE`). When tapped, the firmware **hard-resets to `idle`, re-enables `acceptTaps`, and clears any in-flight scan** — deliberately bypassing the tap gate and the success/failure/reading guards, so it recovers the activation even when the ring is stuck mid-scan. A reset tap emits `[reset] state cleared by card <uid>` rather than `[scan] ...`, so a host never processes it as a guest tap. The PN532 is polled even while taps are gated off, so reset cards work regardless of the `acceptTaps` state.
+
+Enroll cards from the dev tool's **Reset Cards** panel or via `ADDRESET`/`DELRESET`/`LISTRESET`, then `SAVE`.
 
 ---
 

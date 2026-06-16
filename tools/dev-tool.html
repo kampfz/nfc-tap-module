@@ -268,6 +268,18 @@
     transition: all 0.15s;
   }
   .add-state-btn:hover { border-color: #4aff7a; background: rgba(74, 255, 122, 0.1); }
+  .add-state-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .reset-hint { font-size: 10px; color: #6a7a90; line-height: 1.5; margin-bottom: 8px; }
+  .reset-card-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+  .reset-card-item { display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; border: 1px solid #2a3550; border-radius: 4px;
+    background: rgba(0,0,0,0.2); font-family: monospace; font-size: 12px; color: #bfe3ff; }
+  .reset-card-item .uid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reset-card-del { background: none; border: none; color: #ff6b6b; cursor: pointer;
+    font-size: 13px; padding: 0 4px; line-height: 1; }
+  .reset-card-del:hover { color: #ff3b3b; }
+  .reset-card-empty { font-size: 10px; color: #55617a; font-style: italic; padding: 2px 0; }
 
   /* Color Gradient Editor */
   .color-section-header {
@@ -687,6 +699,17 @@
       <span class="param-value" id="reading-delay-value">600ms</span>
     </div>
     <input type="range" id="reading-delay" min="200" max="2000" step="50" value="600">
+  </div>
+
+  <div class="controls-title">// Reset Cards</div>
+  <div class="reset-hint">Tap a reset card to force the ring back to idle and re-enable taps — even if it's stuck mid-scan. Enroll a card below, then <strong>Save to Board</strong> to persist it.</div>
+  <div class="reset-card-list" id="reset-card-list"></div>
+  <div class="add-state-row">
+    <input type="text" class="add-state-input" id="new-reset-uid" placeholder="Reset card UID (decimal)..." maxlength="20">
+    <button class="add-state-btn" id="add-reset-btn" disabled>+ Add</button>
+  </div>
+  <div class="btn-row" style="margin-top: 6px;">
+    <button class="export-btn" id="add-last-tap-btn" style="flex:1;" disabled>Enroll last tapped card</button>
   </div>
 
   <div class="btn-row">
@@ -1246,6 +1269,7 @@ const Serial = (() => {
       setTimeout(() => {
         send('STATUS');
         setTimeout(() => send('DUMP'), 200);
+        setTimeout(() => send('LISTRESET'), 400);
       }, 300);
     } catch (err) {
       console.warn('[serial] connect failed:', err);
@@ -1321,6 +1345,8 @@ const Log = (() => {
     if (line.startsWith('[err]')) return 'err';
     if (line.startsWith('[state]')) return 'state';
     if (line.startsWith('[list]')) return 'sys';
+    if (line.startsWith('[scan]')) return 'nfc';
+    if (line.startsWith('[reset]')) return 'sys';
     return 'other';
   }
 
@@ -1356,6 +1382,27 @@ let expectingCfg = false;
 
 function handleSerialLine(line) {
   const type = Log.add(line);
+
+  // Capture the most recent scanned UID so it can be enrolled as a reset card.
+  if (line.startsWith('[scan]')) {
+    try {
+      const data = JSON.parse(line.substring(line.indexOf('{')));
+      if (data.uid) { lastScanUid = String(data.uid); updateLastTapBtn(); }
+    } catch (e) {}
+    return;
+  }
+
+  // "[reset] ..." is either the LISTRESET reply (comma-separated UIDs) or a
+  // live reset event ("[reset] state cleared by card <uid>"). Only the former
+  // updates the enrolled-card list.
+  if (line.startsWith('[reset] ')) {
+    const rest = line.substring('[reset] '.length).trim();
+    if (!rest.startsWith('state cleared by card')) {
+      resetCards = rest.length ? rest.split(',').map(s => s.trim()).filter(Boolean) : [];
+      renderResetCards();
+    }
+    return;
+  }
 
   // Key=value cfg line (boot banner / SETTAPS echo), e.g. "[cfg] acceptTaps=1"
   if (line.startsWith('[cfg] acceptTaps=')) {
@@ -1432,10 +1479,12 @@ function handleSerialLine(line) {
 }
 
 function setActionButtonsEnabled(enabled) {
-  ['action-ok', 'action-fail', 'action-trigger', 'action-tap', 'action-dump', 'action-reset'].forEach(id => {
+  ['action-ok', 'action-fail', 'action-trigger', 'action-tap', 'action-dump', 'action-reset', 'add-reset-btn'].forEach(id => {
     document.getElementById(id).disabled = !enabled;
   });
   document.getElementById('save-btn').disabled = !enabled;
+  if (!enabled) { resetCards = []; renderResetCards(); }
+  updateLastTapBtn();
 }
 
 function setDirty(dirty) {
@@ -1443,6 +1492,72 @@ function setDirty(dirty) {
   const btn = document.getElementById('save-btn');
   btn.classList.toggle('dirty', dirty);
   btn.textContent = dirty ? 'Save to Board *' : 'Save to Board';
+}
+
+// ── Reset Cards ──────────────────────────────────────────────────────────────
+let resetCards = [];      // enrolled reset-card UIDs, mirrored from LISTRESET
+let lastScanUid = '';     // most recent UID seen in a [scan] line
+
+function renderResetCards() {
+  const list = document.getElementById('reset-card-list');
+  if (!list) return;
+  if (resetCards.length === 0) {
+    list.innerHTML = '<div class="reset-card-empty">No reset cards enrolled.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  resetCards.forEach(uid => {
+    const item = document.createElement('div');
+    item.className = 'reset-card-item';
+    const span = document.createElement('span');
+    span.className = 'uid';
+    span.textContent = uid;
+    const del = document.createElement('button');
+    del.className = 'reset-card-del';
+    del.textContent = '✕';
+    del.title = 'Remove reset card';
+    del.onclick = () => deleteResetCard(uid);
+    item.appendChild(span);
+    item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+
+function refreshResetCards() {
+  if (Serial.isConnected()) Serial.send('LISTRESET');
+}
+
+function addResetCard(uid) {
+  uid = (uid || '').trim();
+  if (!uid) return;
+  if (!/^\d{1,20}$/.test(uid)) {
+    alert('Reset card UID must be a decimal number (the "uid" from a [scan] line).');
+    return;
+  }
+  if (!Serial.isConnected()) { alert('Connect to the board first.'); return; }
+  if (resetCards.includes(uid)) { alert(`${uid} is already a reset card.`); return; }
+  Serial.send(`ADDRESET ${uid}`);
+  setDirty(true);
+  setTimeout(refreshResetCards, 150);  // let the firmware apply, then re-list
+}
+
+function deleteResetCard(uid) {
+  if (!Serial.isConnected()) return;
+  Serial.send(`DELRESET ${uid}`);
+  setDirty(true);
+  setTimeout(refreshResetCards, 150);
+}
+
+function updateLastTapBtn() {
+  const btn = document.getElementById('add-last-tap-btn');
+  if (!btn) return;
+  if (lastScanUid) {
+    btn.textContent = `Enroll last tapped card (${lastScanUid})`;
+    btn.disabled = !Serial.isConnected();
+  } else {
+    btn.textContent = 'Enroll last tapped card';
+    btn.disabled = true;
+  }
 }
 
 // ── Send Commands ────────────────────────────────────────────────────────────
@@ -1532,6 +1647,21 @@ document.getElementById('add-state-btn').onclick = () => {
 document.getElementById('new-state-name').onkeypress = (e) => {
   if (e.key === 'Enter') document.getElementById('add-state-btn').click();
 };
+
+// Reset cards
+document.getElementById('add-reset-btn').onclick = () => {
+  const input = document.getElementById('new-reset-uid');
+  addResetCard(input.value);
+  input.value = '';
+};
+document.getElementById('new-reset-uid').onkeypress = (e) => {
+  if (e.key === 'Enter') document.getElementById('add-reset-btn').click();
+};
+document.getElementById('add-last-tap-btn').onclick = () => {
+  if (lastScanUid) addResetCard(lastScanUid);
+};
+renderResetCards();
+updateLastTapBtn();
 
 document.getElementById('save-btn').onclick = () => {
   Serial.send('SAVE');
