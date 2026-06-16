@@ -56,7 +56,7 @@ See `docs/wiring-diagram.html` for an interactive view.
 - **Board package:** Arduino ESP32 boards — select `Arduino Nano ESP32`
 - **Libraries** (install via Library Manager):
   - `Adafruit PN532` by Adafruit
-  - `FastLED` by Daniel Garcia
+  - `FastLED` by Daniel Garcia — **use ≤ 3.10.3.** FastLED **3.10.4** fails to build against ESP32 core 2.0.18 (`io_pin_remap.h` macro clashes on `pinMode`/`digitalWrite` + an ambiguous `memcpy` in `executeTransition`). If Library Manager auto-updates you to 3.10.4 and the build breaks, downgrade: `arduino-cli lib install FastLED@3.10.3`.
   - `ArduinoJson` by Benoit Blanchon
 
 ### Flashing
@@ -156,7 +156,7 @@ Reference for testing without the dev tool — any serial monitor will work.
 | `[scan] {"uid":"...","badgeId":"...","name":"...","company":"..."}` | NFC scan with guest data (JSON). If card has no valid NDEF, only `uid` is populated. |
 | `[hb] <millis>` | Heartbeat, every 5s |
 | `[state] <name>` | Emitted on every state change |
-| `[cfg] acceptTaps=<0\|1>` | Echoed on boot and after each `SETTAPS` |
+| `[cfg] acceptTaps=<0\|1>` | Echoed on boot, after each `SETTAPS`, and when a reset card re-enables taps |
 | `[reset] state cleared by card <uid>` | A reset card was tapped (see [Reset cards](#reset-cards-1)) |
 | `[reset] <uid>,<uid>,...` | `LISTRESET` reply — enrolled reset UIDs (empty if none) |
 | `[ok] ...` / `[err] ...` | Command acknowledgements |
@@ -192,7 +192,7 @@ The firmware enforces a `TAP_COOLDOWN_MS` of 1500ms between scans to prevent dou
 
 ### Reset cards
 
-A reset card is any NFC card whose UID is enrolled in the reset list (max 8, persisted to NVS on `SAVE`). When tapped, the firmware **hard-resets to `idle`, re-enables `acceptTaps`, and clears any in-flight scan** — deliberately bypassing the tap gate and the success/failure/reading guards, so it recovers the activation even when the ring is stuck mid-scan. A reset tap emits `[reset] state cleared by card <uid>` rather than `[scan] ...`, so a host never processes it as a guest tap. The PN532 is polled even while taps are gated off, so reset cards work regardless of the `acceptTaps` state.
+A reset card is any NFC card whose UID is enrolled in the reset list (max 8, persisted to NVS on `SAVE`). When tapped, the firmware **hard-resets to `idle`, re-enables `acceptTaps`, and clears any in-flight scan** — deliberately bypassing the tap gate and the success/failure/reading guards, so it recovers the activation even when the ring is stuck mid-scan. A reset tap emits `[reset] state cleared by card <uid>` rather than `[scan] ...`, so a host never processes it as a guest tap. Because a reset re-enables taps, it then also emits `[cfg] acceptTaps=1` so the host/dev-tool re-syncs its tap-gate state (the dev tool's **Accept Taps** toggle flips back to On automatically). The PN532 is polled even while taps are gated off, so reset cards work regardless of the `acceptTaps` state.
 
 Enroll cards from the dev tool's **Reset Cards** panel or via `ADDRESET`/`DELRESET`/`LISTRESET`, then `SAVE`.
 
