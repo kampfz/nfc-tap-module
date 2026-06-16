@@ -1707,8 +1707,11 @@ void loop() {
     nfcResultPending = false;
     nfcResultSuccess = false;
 
-    // Re-enable tap intake -- the whole point of a reset card.
+    // Re-enable tap intake -- the whole point of a reset card. Emit the
+    // [cfg] line so the host learns taps are back on (matches SETTAPS).
     acceptTaps = true;
+    Serial.print("[cfg] acceptTaps=");
+    Serial.println(acceptTaps ? "1" : "0");
 
     // Force straight to the home state, bypassing the pending/transition path
     // so recovery works even if pendingStateIdx is wedged.
