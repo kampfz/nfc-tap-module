@@ -75,6 +75,7 @@ On first flash, the firmware writes its default LED states to ESP32 flash (NVS) 
 - Emits scan data + heartbeat + state changes over USB Serial (115200 baud)
 - Runs a dynamic state machine driving the LED ring (idle / active / reading / success / failure, plus any custom states added via the dev tool)
 - Accepts serial commands to trigger states, modify state parameters, and import/export configs
+- **Validates the badge format** before flashing success — foreign cards are rejected, not forwarded (see [Badge format check](#badge-format-check))
 - Supports **reset cards** — designated UIDs that, when tapped, hard-reset the ring to `idle` and re-enable taps even if the device has wedged (see [Reset cards](#reset-cards))
 
 ### Default LED states
@@ -153,9 +154,10 @@ Reference for testing without the dev tool — any serial monitor will work.
 
 | Message | Description |
 |---------|-------------|
-| `[scan] {"uid":"...","badgeId":"...","name":"...","company":"..."}` | NFC scan with guest data (JSON). If card has no valid NDEF, only `uid` is populated. |
+| `[scan] {"uid":"...","badgeId":"...","name":"...","company":"..."}` | NFC scan (JSON). Guest fields are included only when the badge passes the format check; otherwise just `uid` (see [Badge format check](#badge-format-check)). |
 | `[hb] <millis>` | Heartbeat, every 5s |
 | `[state] <name>` | Emitted on every state change |
+| `[warn] unrecognized badge format — rejected` | Card read but not one of our badges — no guest data, flashes failure |
 | `[cfg] acceptTaps=<0\|1>` | Echoed on boot, after each `SETTAPS`, and when a reset card re-enables taps |
 | `[reset] state cleared by card <uid>` | A reset card was tapped (see [Reset cards](#reset-cards-1)) |
 | `[reset] <uid>,<uid>,...` | `LISTRESET` reply — enrolled reset UIDs (empty if none) |
@@ -189,6 +191,18 @@ Reference for testing without the dev tool — any serial monitor will work.
 Cards must be held on the reader for ~1 second to read the NDEF record; quick taps only capture the UID.
 
 The firmware enforces a `TAP_COOLDOWN_MS` of 1500ms between scans to prevent double-fires.
+
+### Badge format check
+
+Before flashing **success** or forwarding guest data, the firmware checks that the scanned
+card is one of our badges. The NDEF text record must begin with a 20-character badge ID —
+**16 decimal digits + a 4-character alphanumeric activation code** — ahead of the
+caret-delimited guest fields (`{badgeId}{code}^{firstName}^{lastName}^{company}^`).
+
+A card that fails (foreign NTAG, hotel key, transit pass, …) is **rejected**: the firmware
+emits `[warn] unrecognized badge format — rejected`, sends a `[scan]` carrying **only `uid`**
+(no `badgeId`/`name`/`company`), and flashes **failure**. Only a passing card flashes success
+and forwards full guest data.
 
 ### Reset cards
 

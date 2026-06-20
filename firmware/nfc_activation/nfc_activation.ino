@@ -1370,6 +1370,25 @@ String uidToWaveId(uint8_t *uid, uint8_t uidLen) {
   return String(&buf[i]);
 }
 
+// ── Badge Format Validation ──────────────────────────────────────────────────
+// Our badges carry an NDEF text record beginning with a 20-char badge ID:
+// 16 decimal digits followed by a 4-char alphanumeric activation code, then
+// caret-delimited guest fields. This check rejects foreign cards (hotel keys,
+// transit passes, blank/other NTAGs) that happen to hold an NDEF text record,
+// so they never flash success or get forwarded as a guest scan.
+bool isOurBadgeFormat(const char* badgeId) {
+  if (strlen(badgeId) != 20) return false;
+  for (uint8_t i = 0; i < 16; i++) {
+    if (badgeId[i] < '0' || badgeId[i] > '9') return false;   // 16-digit numeric ID
+  }
+  for (uint8_t i = 16; i < 20; i++) {                          // 4-char alphanumeric code
+    char c = badgeId[i];
+    bool alnum = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    if (!alnum) return false;
+  }
+  return true;
+}
+
 // ── NDEF Reading ─────────────────────────────────────────────────────────────
 // Read NTAG pages and extract NDEF text record payload.
 // Writes directly to nfcPending* globals. Returns true if valid guest data was parsed.
@@ -1513,6 +1532,14 @@ bool readNdefGuestData() {
   if (fieldCount >= 3) {
     strncpy(nfcPendingCompany, fields[2], sizeof(nfcPendingCompany) - 1);
     nfcPendingCompany[sizeof(nfcPendingCompany) - 1] = '\0';
+  }
+
+  // Format check: only accept our badges (16-digit ID + 4-char activation code).
+  // A foreign card whose NDEF happens to parse this far is rejected here, so it
+  // never flashes success or has its (bogus) guest data forwarded over serial.
+  if (!isOurBadgeFormat(nfcPendingBadgeId)) {
+    nfcPendingValid = false;
+    return false;
   }
 
   nfcPendingValid = true;
@@ -1745,16 +1772,22 @@ void loop() {
         doc["uid"] = nfcPendingUid;
 
         if (nfcPendingValid) {
+          // Our badge (format check passed) — forward the guest data.
           doc["badgeId"] = nfcPendingBadgeId;
           doc["name"] = nfcPendingName;
           doc["company"] = nfcPendingCompany;
+        } else {
+          // Read OK but not one of our badges — no guest data is forwarded and
+          // the result flash will be failure (nfcResultSuccess below).
+          Serial.println("[warn] unrecognized badge format — rejected");
         }
 
         Serial.print("[scan] ");
         serializeJson(doc, Serial);
         Serial.println();
 
-        // Queue the result - actual trigger happens after minimum reading time
+        // Queue the result - actual trigger happens after minimum reading time.
+        // Only our badges (nfcPendingValid) flash success.
         nfcResultPending = true;
         nfcResultSuccess = nfcPendingValid;
       }
