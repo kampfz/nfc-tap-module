@@ -1392,6 +1392,14 @@ function handleSerialLine(line) {
     return;
   }
 
+  // Rejected (non-badge) cards don't emit a [scan], so grab their UID from the
+  // rejection warning — lets you still enroll a foreign card as a reset card.
+  if (line.startsWith('[warn] unrecognized badge format')) {
+    const m = line.match(/uid (\d+)/);
+    if (m) { lastScanUid = m[1]; updateLastTapBtn(); }
+    return;
+  }
+
   // "[reset] ..." is either the LISTRESET reply (comma-separated UIDs) or a
   // live reset event ("[reset] state cleared by card <uid>"). Only the former
   // updates the enrolled-card list.

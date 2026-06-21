@@ -154,10 +154,10 @@ Reference for testing without the dev tool — any serial monitor will work.
 
 | Message | Description |
 |---------|-------------|
-| `[scan] {"uid":"...","badgeId":"...","name":"...","company":"..."}` | NFC scan (JSON). Guest fields are included only when the badge passes the format check; otherwise just `uid` (see [Badge format check](#badge-format-check)). |
+| `[scan] {"uid":"...","badgeId":"...","name":"...","company":"..."}` | NFC scan (JSON). **Emitted only for a card that passes the format check** — a non-badge produces no `[scan]` (see [Badge format check](#badge-format-check)). |
 | `[hb] <millis>` | Heartbeat, every 5s |
 | `[state] <name>` | Emitted on every state change |
-| `[warn] unrecognized badge format — rejected` | Card read but not one of our badges — no guest data, flashes failure |
+| `[warn] unrecognized badge format — rejected (uid <uid>)` | Card read but not one of our badges — **no `[scan]` is emitted**, flashes failure. UID is logged so a foreign card can still be enrolled as a reset card. |
 | `[cfg] acceptTaps=<0\|1>` | Echoed on boot, after each `SETTAPS`, and when a reset card re-enables taps |
 | `[reset] state cleared by card <uid>` | A reset card was tapped (see [Reset cards](#reset-cards-1)) |
 | `[reset] <uid>,<uid>,...` | `LISTRESET` reply — enrolled reset UIDs (empty if none) |
@@ -199,10 +199,12 @@ card is one of our badges. The NDEF text record must begin with a 20-character b
 **16 decimal digits + a 4-character alphanumeric activation code** — ahead of the
 caret-delimited guest fields (`{badgeId}{code}^{firstName}^{lastName}^{company}^`).
 
-A card that fails (foreign NTAG, hotel key, transit pass, …) is **rejected**: the firmware
-emits `[warn] unrecognized badge format — rejected`, sends a `[scan]` carrying **only `uid`**
-(no `badgeId`/`name`/`company`), and flashes **failure**. Only a passing card flashes success
-and forwards full guest data.
+A card that fails (foreign NTAG, hotel key, transit pass, a **phone**, …) is **rejected**: the
+firmware emits `[warn] unrecognized badge format — rejected (uid <uid>)` and flashes **failure**.
+Crucially it does **not** emit a `[scan]` — so the host never sees the tap and can't drive the
+ring to success (e.g. a TouchDesigner state flashing green off the scan). The UID is logged so a
+foreign card can still be enrolled as a reset card. Only a passing card emits `[scan]`, flashes
+success, and forwards full guest data.
 
 ### Reset cards
 

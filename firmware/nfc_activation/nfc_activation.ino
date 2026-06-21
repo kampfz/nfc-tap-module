@@ -1767,27 +1767,28 @@ void loop() {
     {
       // Only emit scan and trigger states if read completed (card held long enough)
       if (nfcReadComplete) {
-        // Build JSON output
-        StaticJsonDocument<256> doc;
-        doc["uid"] = nfcPendingUid;
-
         if (nfcPendingValid) {
-          // Our badge (format check passed) — forward the guest data.
+          // Our badge (format check passed) — forward the full guest data.
+          StaticJsonDocument<256> doc;
+          doc["uid"]     = nfcPendingUid;
           doc["badgeId"] = nfcPendingBadgeId;
-          doc["name"] = nfcPendingName;
+          doc["name"]    = nfcPendingName;
           doc["company"] = nfcPendingCompany;
+          Serial.print("[scan] ");
+          serializeJson(doc, Serial);
+          Serial.println();
         } else {
-          // Read OK but not one of our badges — no guest data is forwarded and
-          // the result flash will be failure (nfcResultSuccess below).
-          Serial.println("[warn] unrecognized badge format — rejected");
+          // Not one of our badges. Deliberately do NOT emit a [scan]: the host
+          // must never see this as a tap, or a downstream state could flash the
+          // ring green (success) off it. We still log the uid so the dev tool
+          // can enroll reset cards, and flash failure locally below.
+          Serial.print("[warn] unrecognized badge format — rejected (uid ");
+          Serial.print(nfcPendingUid);
+          Serial.println(")");
         }
 
-        Serial.print("[scan] ");
-        serializeJson(doc, Serial);
-        Serial.println();
-
         // Queue the result - actual trigger happens after minimum reading time.
-        // Only our badges (nfcPendingValid) flash success.
+        // Only our badges (nfcPendingValid) flash success; anything else fails.
         nfcResultPending = true;
         nfcResultSuccess = nfcPendingValid;
       }
