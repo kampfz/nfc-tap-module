@@ -122,6 +122,10 @@ struct LedState {
 #define NFC_HEALTH_CHECK_MS  5000   // how often to probe PN532 while connected
 #define NFC_RETRY_MS         3000   // how often to attempt re-init when lost
 #define READING_MIN_DEFAULT  600    // default minimum reading state display time
+#define READ_SETTLE_MS       8      // settle delay after select, before reading pages
+#define READ_RETRY_MS        2800   // keep re-reading the NDEF this long after a tap
+                                    // (< reading.duration 3000 so a late read can't
+                                    //  fire success after the reading timeout flips)
 
 uint16_t readingMinMs = READING_MIN_DEFAULT;
 volatile bool acceptTaps = true;       // global gate: when false, NFC polling is paused
@@ -1595,6 +1599,7 @@ void nfcTask(void* pvParameters) {
   // card is genuinely held.
   bool cardPresent = false;
   unsigned long lastSeenMs = 0;
+  bool readPending = false;   // a guest tap is accepted but its NDEF read hasn't completed yet
 
   for (;;) {
     unsigned long now = millis();
@@ -1634,13 +1639,34 @@ void nfcTask(void* pvParameters) {
           strncpy(nfcPendingUid, s.c_str(), sizeof(nfcPendingUid) - 1);
           nfcPendingUid[sizeof(nfcPendingUid) - 1] = '\0';
 
-          // Signal card detected (triggers "reading" state in loop)
+          // Signal card detected (triggers "reading" state in loop). The actual
+          // NDEF read is owed by the re-read block below: we keep retrying it
+          // while the card stays on the reader rather than reading just once
+          // here, so a quick/wobbly tap that misses on the first attempt still
+          // lands during the "reading" animation window.
           nfcCardDetected = true;
+          readPending = true;
+        }
+      }
 
-          // Read NDEF guest data from card (writes to nfcPending* globals)
-          readNdefGuestData();
-
-          nfcNewScan = true;  // signal loop() to print and forward
+      // Re-read the NDEF while a read is owed and the card is still present.
+      // A single detection-time read often misses on a fast/imperfectly-coupled
+      // tap; the card usually stays put through the "reading" animation, so we
+      // keep trying in that window. We stop on the first COMPLETE read (pages
+      // read, valid badge or not — that's a definitive result), when the card
+      // leaves, or when the retry window closes (then "reading" times out to
+      // failure as before).
+      if (readPending) {
+        if (!cardPresent || (now - lastTapMs) > READ_RETRY_MS) {
+          readPending = false;            // gave up — reading state will time out
+        } else if (detected) {
+          delay(READ_SETTLE_MS);          // let the just-selected card settle
+          readNdefGuestData();            // writes nfcPending*, sets nfcReadComplete
+          if (nfcReadComplete) {          // pages read → definitive result
+            readPending = false;
+            nfcNewScan = true;            // hand to loop(): success if valid, else failure
+          }
+          // else: couldn't read the pages this cycle — retry on the next poll
         }
       }
 

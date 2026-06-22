@@ -71,7 +71,7 @@ On first flash, the firmware writes its default LED states to ESP32 flash (NVS) 
 ### What the firmware does
 
 - Polls the PN532 over I2C for NFC taps
-- On tap, reads the card UID and any NDEF text record (badge ID, name, company)
+- On tap, reads the card UID and any NDEF text record (badge ID, name, company). The NDEF read is **retried for the duration of the `reading` animation** (up to ~2.8 s) rather than attempted once, so a quick or imperfectly-placed tap still succeeds as long as the card stays on the reader
 - Emits scan data + heartbeat + state changes over USB Serial (115200 baud)
 - Runs a dynamic state machine driving the LED ring (idle / active / reading / success / failure, plus any custom states added via the dev tool)
 - Accepts serial commands to trigger states, modify state parameters, and import/export configs
