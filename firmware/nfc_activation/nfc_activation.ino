@@ -52,6 +52,10 @@
  * Board: Arduino ESP32 Boards — "Arduino Nano ESP32"
  */
 
+// ── Debug ────────────────────────────────────────────────────────────────────
+// Uncomment to enable verbose NFC page-read diagnostics over serial.
+// #define NFC_DEBUG
+
 // ── Limits ───────────────────────────────────────────────────────────────────
 // Must be defined before #includes so the Arduino IDE's auto-generated function
 // prototypes (inserted after the last #include) can resolve LedState/LedColor.
@@ -122,7 +126,7 @@ struct LedState {
 #define NFC_HEALTH_CHECK_MS  5000   // how often to probe PN532 while connected
 #define NFC_RETRY_MS         3000   // how often to attempt re-init when lost
 #define READING_MIN_DEFAULT  600    // default minimum reading state display time
-#define READ_SETTLE_MS       8      // settle delay after select, before reading pages
+#define READ_SETTLE_MS       40     // settle delay after select, before reading pages
 #define READ_RETRY_MS        2800   // keep re-reading the NDEF this long after a tap
                                     // (< reading.duration 3000 so a late read can't
                                     //  fire success after the reading timeout flips)
@@ -1403,25 +1407,92 @@ bool readNdefGuestData() {
   nfcPendingValid = false;
   nfcReadComplete = false;
 
-  // Read pages 4-19 (64 bytes) which should contain the NDEF message
-  // ntag2xx_ReadPage reads 4 bytes (1 page) at a time
-  uint8_t buffer[64];
+  // Read pages 4-29 (104 bytes) — covers badges with longer name/company fields.
+  // On a page failure we restart from page 4 immediately (up to FULL_READ_ATTEMPTS
+  // times) rather than returning false and waiting for the next nfcTask poll cycle.
+  // Each restart costs ~300ms worst-case for a 13-page badge; with 3 attempts we
+  // stay well inside the 2800ms READ_RETRY_MS window.
+  static const uint8_t FULL_READ_ATTEMPTS = 3;
+  uint8_t buffer[104];
   uint8_t bufLen = 0;
 
-  for (uint8_t page = 4; page < 20 && bufLen < 64; page++) {
-    uint8_t pageData[4];
-    // Retry up to 3 times per page
-    bool success = false;
-    for (uint8_t retry = 0; retry < 3 && !success; retry++) {
-      success = nfc.ntag2xx_ReadPage(page, pageData);
-      if (!success) delay(5);
+  for (uint8_t pass = 0; pass < FULL_READ_ATTEMPTS; pass++) {
+    bufLen = 0;
+    bool passFailed = false;
+
+    for (uint8_t page = 4; page < 30 && bufLen < 104; page++) {
+      uint8_t pageData[4];
+      bool success = false;
+      uint8_t attempts = 0;
+      for (; attempts < 5 && !success; attempts++) {
+        success = nfc.ntag2xx_ReadPage(page, pageData);
+        if (!success) delay(20);
+      }
+      if (!success) {
+        #ifdef NFC_DEBUG
+        Serial.print("[debug] page read failed: page=");
+        Serial.print(page);
+        Serial.print(" attempts=");
+        Serial.print(attempts);
+        Serial.print(" pass=");
+        Serial.println(pass);
+        #endif
+        passFailed = true;
+        break;
+      }
+      #ifdef NFC_DEBUG
+      if (attempts > 1) {
+        Serial.print("[debug] page ");
+        Serial.print(page);
+        Serial.print(" needed ");
+        Serial.print(attempts);
+        Serial.println(" attempts");
+      }
+      #endif
+      memcpy(buffer + bufLen, pageData, 4);
+      bufLen += 4;
+
+      // Early exit: stop reading once the buffer contains the complete NDEF message.
+      // Scan for the NDEF TLV (0x03) and check whether we've read enough bytes to
+      // cover its full payload. This avoids reading pages past the end of the badge
+      // data, which reduces the chance of a mid-read RF dropout killing the scan.
+      for (uint8_t i = 0; i + 1 < bufLen; i++) {
+        if (buffer[i] == 0x03) {
+          uint16_t nlen;
+          uint8_t overhead;
+          if (buffer[i + 1] == 0xFF && i + 3 < bufLen) {
+            nlen = ((uint16_t)buffer[i + 2] << 8) | buffer[i + 3];
+            overhead = 4;
+          } else {
+            nlen = buffer[i + 1];
+            overhead = 2;
+          }
+          if (bufLen >= i + overhead + nlen) {
+            #ifdef NFC_DEBUG
+            Serial.print("[debug] NDEF complete at page ");
+            Serial.print(page);
+            Serial.print(" pass=");
+            Serial.print(pass);
+            Serial.print(" (");
+            Serial.print(bufLen);
+            Serial.println(" bytes read)");
+            #endif
+            goto done_reading;
+          }
+          break;
+        }
+      }
     }
-    if (!success) {
-      return false;
-    }
-    memcpy(buffer + bufLen, pageData, 4);
-    bufLen += 4;
+
+    if (!passFailed) break;   // all pages read cleanly — proceed to parse
+    if (pass + 1 < FULL_READ_ATTEMPTS) delay(10);  // brief pause before restart
   }
+
+  // Only proceed to parse if early-termination confirmed a complete NDEF message.
+  // bufLen > 0 is not sufficient — a failed pass may have read a few pages before
+  // dropping out, leaving partial data that would be parsed as garbage.
+  return false;
+  done_reading:
 
   // Pages read successfully - mark read as complete
   nfcReadComplete = true;
@@ -1573,7 +1644,7 @@ bool stateBlocksTaps() {
 // readPassiveTargetID() returns false for both "no card" and "reader gone".
 void nfcTask(void* pvParameters) {
   Wire.begin(PN532_SDA, PN532_SCL);
-  Wire.setTimeOut(50);
+  Wire.setTimeOut(200);
   nfc.begin();
 
   uint32_t ver = nfc.getFirmwareVersion();
@@ -1683,7 +1754,7 @@ void nfcTask(void* pvParameters) {
       if (now - lastCheckMs >= NFC_RETRY_MS) {
         lastCheckMs = now;
         Wire.begin(PN532_SDA, PN532_SCL);
-        Wire.setTimeOut(50);
+        Wire.setTimeOut(200);
         nfc.begin();
         uint32_t v = nfc.getFirmwareVersion();
         if (v) {
