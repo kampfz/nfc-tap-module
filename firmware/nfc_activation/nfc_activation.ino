@@ -129,6 +129,10 @@ struct LedState {
 
 uint16_t readingMinMs = READING_MIN_DEFAULT;
 volatile bool acceptTaps = true;       // global gate: when false, NFC polling is paused
+bool ledEnabled = true;                // when false, the ring is cleared and FastLED.show() is
+                                       // skipped entirely (no LED current, no data signal) --
+                                       // diagnostic toggle to test LED interference with NFC reads
+bool ringCleared = false;              // tracks whether we've already blanked the ring while disabled
 
 // ── Animation Presets ────────────────────────────────────────────────────────
 const char* PRESET_NAMES[] = {"noise", "chase", "breathe", "wave", "sparkle", "rainbow", "solid", "gradient"};
@@ -558,6 +562,7 @@ void saveStatesToNvs() {
   prefs.putUChar("count", stateCount);
   prefs.putUShort("readingMs", readingMinMs);
   prefs.putBool("acceptTaps", acceptTaps);
+  prefs.putBool("ledEnabled", ledEnabled);
 
   // Reset card UIDs
   prefs.putUChar("rstc", resetUidCount);
@@ -613,6 +618,7 @@ void loadStatesFromNvs() {
   // Load global settings
   readingMinMs = prefs.getUShort("readingMs", READING_MIN_DEFAULT);
   acceptTaps = prefs.getBool("acceptTaps", true);
+  ledEnabled = prefs.getBool("ledEnabled", true);
 
   // Reset card UIDs (loaded before the count==0 early-return below so they
   // survive even on a device that has no custom states saved).
@@ -749,6 +755,8 @@ void dumpAllStates() {
   Serial.print(readingMinMs);
   Serial.print(",\"acceptTaps\":");
   Serial.print(acceptTaps ? "true" : "false");
+  Serial.print(",\"ledEnabled\":");
+  Serial.print(ledEnabled ? "true" : "false");
   Serial.println("}");
 
   for (uint8_t i = 0; i < stateCount; i++) {
@@ -1312,6 +1320,12 @@ void processSerial() {
         Serial.print("[cfg] acceptTaps=");
         Serial.println(acceptTaps ? "1" : "0");
       }
+      else if (serialBuffer.startsWith("SETLED ")) {
+        int val = serialBuffer.substring(7).toInt();
+        ledEnabled = (val != 0);
+        Serial.print("[cfg] ledEnabled=");
+        Serial.println(ledEnabled ? "1" : "0");
+      }
       else if (serialBuffer == "LIST") {
         Serial.print("[list] ");
         for (uint8_t i = 0; i < stateCount; i++) {
@@ -1711,6 +1725,8 @@ void setup() {
   Serial.println(" states");
   Serial.print("[cfg] acceptTaps=");
   Serial.println(acceptTaps ? "1" : "0");
+  Serial.print("[cfg] ledEnabled=");
+  Serial.println(ledEnabled ? "1" : "0");
 
   // Initialize LEDs
   FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(leds, LED_COUNT);
@@ -1853,6 +1869,20 @@ void loop() {
       triggerState(cs->returnTo);
     }
   }
+
+  // LED ring disabled (diagnostic): blank the ring once, then skip rendering and
+  // FastLED.show() entirely so there's no LED current draw and no data-line signal
+  // on the strip. The state machine + NFC keep running normally above.
+  if (!ledEnabled) {
+    if (!ringCleared) {
+      fill_solid(leds, LED_COUNT, CRGB::Black);
+      FastLED.show();
+      ringCleared = true;
+    }
+    delay(16);
+    return;
+  }
+  ringCleared = false;
 
   // Render LEDs
   cs = getCurrentState();

@@ -159,6 +159,7 @@ Reference for testing without the dev tool — any serial monitor will work.
 | `[state] <name>` | Emitted on every state change |
 | `[warn] unrecognized badge format — rejected (uid <uid>)` | Card read but not one of our badges — **no `[scan]` is emitted**, flashes failure. UID is logged so a foreign card can still be enrolled as a reset card. |
 | `[cfg] acceptTaps=<0\|1>` | Echoed on boot, after each `SETTAPS`, and when a reset card re-enables taps |
+| `[cfg] ledEnabled=<0\|1>` | Echoed on boot and after each `SETLED` |
 | `[reset] state cleared by card <uid>` | A reset card was tapped (see [Reset cards](#reset-cards-1)) |
 | `[reset] <uid>,<uid>,...` | `LISTRESET` reply — enrolled reset UIDs (empty if none) |
 | `[ok] ...` / `[err] ...` | Command acknowledgements |
@@ -175,6 +176,7 @@ Reference for testing without the dev tool — any serial monitor will work.
 | `SAVE` | Persist current states to flash (NVS) |
 | `RESET` | Wipe NVS, restore compiled defaults |
 | `SETTAPS 0\|1` | Global tap gate: 1 = poll NFC, 0 = pause polling |
+| `SETLED 0\|1` | LED ring enable (diagnostic): 0 = blank the ring and stop driving it (no LED current/signal), 1 = normal. Persisted on `SAVE`; defaults on. Use to test whether the LED ring affects NFC read reliability. |
 | `SETDELAY <ms>` | Minimum reading-state display time (0–10000ms, default 600) |
 | `ADDSTATE <name>` | Create new state |
 | `DELSTATE <name>` | Delete state (not defaults) |

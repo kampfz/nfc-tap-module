@@ -693,6 +693,11 @@
     <span class="param-name" style="width: 90px;">Accept Taps</span>
     <button class="toggle-btn" id="accept-taps-btn">Accept Taps: On</button>
   </div>
+  <div class="duration-row" style="margin-bottom: 8px;">
+    <span class="param-name" style="width: 90px;">LED Ring</span>
+    <button class="toggle-btn" id="led-enable-btn">LED Ring: On</button>
+    <span class="param-name" style="font-size: 9px;">diagnostic — off = ring blanked, no LED signal</span>
+  </div>
   <div class="param">
     <div class="param-header">
       <span class="param-name">Reading Delay</span>
@@ -734,6 +739,8 @@ const LED_RADIUS = 12;
 let readingMinMs = 600;
 let acceptTaps = true;
 let syncingAcceptTaps = false;  // suppress send while mirroring firmware echo
+let ledEnabled = true;
+let syncingLed = false;         // suppress send while mirroring firmware echo
 let t = 0;
 let lastFrameTime = performance.now();
 
@@ -1418,6 +1425,11 @@ function handleSerialLine(line) {
     mirrorAcceptTaps(raw === '1' || raw === 'true' || raw === 'on');
     return;
   }
+  if (line.startsWith('[cfg] ledEnabled=')) {
+    const raw = line.substring('[cfg] ledEnabled='.length).trim().toLowerCase();
+    mirrorLed(raw === '1' || raw === 'true' || raw === 'on');
+    return;
+  }
 
   // Parse config dump
   if (line.startsWith('[cfg] {')) {
@@ -1437,6 +1449,9 @@ function handleSerialLine(line) {
         }
         if (data.acceptTaps !== undefined) {
           mirrorAcceptTaps(!!data.acceptTaps);
+        }
+        if (data.ledEnabled !== undefined) {
+          mirrorLed(!!data.ledEnabled);
         }
       } else if (data.name) {
         cfgBuffer.push(data);
@@ -1719,6 +1734,32 @@ document.getElementById('accept-taps-btn').onclick = () => {
   }
 };
 updateAcceptTapsBtn();
+
+// LED Ring toggle (diagnostic — pushes SETLED to firmware)
+function updateLedBtn() {
+  const btn = document.getElementById('led-enable-btn');
+  btn.classList.toggle('active', ledEnabled);
+  btn.textContent = `LED Ring: ${ledEnabled ? 'On' : 'Off'}`;
+}
+function mirrorLed(val) {
+  // Firmware-authoritative: update UI without bouncing a SETLED back.
+  if (ledEnabled === val) return;
+  syncingLed = true;
+  try {
+    ledEnabled = val;
+    updateLedBtn();
+  } finally {
+    syncingLed = false;
+  }
+}
+document.getElementById('led-enable-btn').onclick = () => {
+  ledEnabled = !ledEnabled;
+  updateLedBtn();
+  if (!syncingLed && Serial.isConnected()) {
+    Serial.send(`SETLED ${ledEnabled ? 1 : 0}`);
+  }
+};
+updateLedBtn();
 
 // Parameter sliders
 ['speed', 'scale', 'brightness', 'gamma', 'breaths'].forEach(param => {
